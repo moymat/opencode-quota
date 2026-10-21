@@ -176,6 +176,14 @@ describe("provider-metadata", () => {
         notes: "Reads the Xiaomi MiMo dashboard with a filtered trusted cookie",
       },
       {
+        id: "mistral-vibe",
+        autoSetup: "needs_quick_setup",
+        authentication: "state_only",
+        quota: "remote_api",
+        quickSetupAnchor: "mistral-vibe",
+        notes: "Reads the Vibe dashboard usage API with a filtered session cookie",
+      },
+      {
         id: "opencode-go",
         autoSetup: "yes",
         authentication: "opencode_auth_api_key",
@@ -308,6 +316,11 @@ describe("provider-metadata", () => {
       "xiaomi-token-plan-cn",
       "xiaomi-token-plan-ams",
       "xiaomi-token-plan-sgp",
+    ]);
+    expect(QUOTA_PROVIDER_RUNTIME_IDS["mistral-vibe"]).toEqual([
+      "mistral",
+      "mistral-vibe",
+      "mistralai",
     ]);
     expect(QUOTA_PROVIDER_RUNTIME_IDS["quota-providers"]).toEqual([]);
   });

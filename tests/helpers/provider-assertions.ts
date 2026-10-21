@@ -263,6 +263,20 @@ export const PROVIDER_ACCOUNTING_LEDGER: Record<string, Array<QuotaToastEntry["a
       authority: "provider_reported",
     },
   ],
+  "mistral-vibe": [
+    {
+      resultType: "quota",
+      acquisitionMethod: "dashboard_scrape",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+    {
+      resultType: "status",
+      acquisitionMethod: "dashboard_scrape",
+      ownership: "maintained",
+      authority: "provider_reported",
+    },
+  ],
   "opencode-go": [
     {
       resultType: "quota",
