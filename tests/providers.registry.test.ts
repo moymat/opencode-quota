@@ -27,6 +27,7 @@ const EXPECTED_PROVIDER_ORDER = [
   "deepseek",
   "xai",
   "xiaomi",
+  "mistral-vibe",
   "opencode-go",
   "opencode",
   "ollama-cloud",

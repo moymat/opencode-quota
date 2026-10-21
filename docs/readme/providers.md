@@ -92,6 +92,12 @@ These show only your own member API key's usage, not the whole organization's.
 
 </details>
 
+### European providers
+
+| Provider     | Auth/setup                   | Data from  | Reports |
+| ------------ | ---------------------------- | ---------- | ------- |
+| Mistral Vibe | [Needs setup](#mistral-vibe) | Remote API | Quota   |
+
 ### How rows are shown
 
 - `Quota` covers quota and rate-limit windows; JSON tells them apart.
@@ -531,6 +537,28 @@ To copy the cookie:
 - Provider ids: `xiaomi`, `xiaomi-token-plan-cn`, `xiaomi-token-plan-ams`, and `xiaomi-token-plan-sgp`. With a manual provider list, use `xiaomi`.
 - Plan name and code only label the display. An expired plan is not shown as active, and `currentPeriodEnd` is not a quota reset.
 - The three dashboard requests are independent, so other rows still appear if one fails. Per-API-key costs are not supported yet.
+
+<a id="mistral-vibe"></a>
+
+### Mistral Vibe
+
+Reads the Vibe dashboard usage API with the Ory session cookie. Set `MISTRAL_VIBE_COOKIE` in the environment that runs the OpenCode server:
+
+```bash
+export MISTRAL_VIBE_COOKIE='ory_session_...=...'
+```
+
+To copy the cookie:
+
+1. Sign in at `chat.mistral.ai`.
+2. Open the browser Developer Tools, then **Network**.
+3. Refresh the Vibe dashboard and select a `chat.mistral.ai` request (for example `apiKey.getUsage`).
+4. Copy its **Request Headers → Cookie** value into the variable above.
+
+- The value may start with `Cookie:`. Line breaks are rejected. Only `ory_session_*` pairs are kept; CSRF, Cloudflare, and tracking cookies are removed before requests.
+- The session lasts about 90 days; when it expires, the row reports that the cookie must be updated.
+- Provider id: `mistral-vibe`. With a manual provider list, include `mistral-vibe`.
+- The dashboard reports usage and the next reset. `usagePercentage` is converted to the remaining percentage, and `paygEnabled` is a supplementary status row.
 
 <a id="ollama-cloud"></a>
 

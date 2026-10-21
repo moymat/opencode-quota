@@ -24,6 +24,10 @@ import {
   resolveMiniMaxAuthCached,
   resolveMiniMaxChinaAuthCached,
 } from "../lib/minimax-auth.js";
+import {
+  DEFAULT_MISTRAL_VIBE_CONFIG_CACHE_MAX_AGE_MS,
+  resolveMistralVibeConfigCached,
+} from "../lib/mistral-vibe-config.js";
 import { resolveNanoGptApiKey } from "../lib/nanogpt-config.js";
 import { resolveOllamaCloudApiKey } from "../lib/ollama-cloud-config.js";
 import { resolveOpenAIAuthIdentity } from "../lib/openai.js";
@@ -221,6 +225,12 @@ export const PROVIDER_CACHE_POLICIES = {
   xiaomi: resolvedCredentialPolicy("xiaomi", async () => {
     const resolved = await resolveMimoConfigCached({
       maxAgeMs: DEFAULT_MIMO_CONFIG_CACHE_MAX_AGE_MS,
+    });
+    return resolved.state === "configured" ? { credential: resolved.config.cookie } : null;
+  }),
+  "mistral-vibe": resolvedCredentialPolicy("mistral-vibe", async () => {
+    const resolved = await resolveMistralVibeConfigCached({
+      maxAgeMs: DEFAULT_MISTRAL_VIBE_CONFIG_CACHE_MAX_AGE_MS,
     });
     return resolved.state === "configured" ? { credential: resolved.config.cookie } : null;
   }),

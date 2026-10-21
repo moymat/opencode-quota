@@ -195,6 +195,12 @@ These show only your own member API key's usage, not the whole organization's.
 
 </details>
 
+### Pre-configured European providers
+
+| Provider     | Auth/setup                                                    | Data from  | Reports |
+| ------------ | ------------------------------------------------------------- | ---------- | ------- |
+| Mistral Vibe | [Needs setup](docs/readme/providers.md#mistral-vibe)          | Remote API | Quota   |
+
 ### Custom providers
 
 Track a provider that is not listed, from its quota API or from a local estimate:

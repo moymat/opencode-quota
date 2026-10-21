@@ -321,6 +321,19 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
     },
   },
   {
+    id: "mistral-vibe",
+    label: "Mistral Vibe",
+    runtimeIds: ["mistral", "mistral-vibe", "mistralai"],
+    synonyms: ["mistral", "mistralai"],
+    shape: {
+      autoSetup: "needs_quick_setup",
+      authentication: "state_only",
+      quota: "remote_api",
+      quickSetupAnchor: "mistral-vibe",
+      notes: "Reads the Vibe dashboard usage API with a filtered session cookie",
+    },
+  },
+  {
     id: "opencode-go",
     label: "OpenCode Go",
     runtimeIds: ["opencode-go"],
