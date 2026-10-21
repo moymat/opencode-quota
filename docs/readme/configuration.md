@@ -262,6 +262,7 @@ Toasts appear only in the TUI, never in Web or Desktop.
 | `anthropicBinaryPath`        | `"claude"`                         | Claude CLI command or path. With `"claude"`, OpenCode's `PATH` is tried first, then the usual install folders (not on Windows). |
 | `opencodeGoWindows`          | `["rolling", "weekly", "monthly"]` | Which OpenCode Go windows appear: Five-hour, Weekly, and Monthly. |
 | `opencodeMonthlyLimit`       | unset                              | Override the OpenCode Zen monthly budget in USD. |
+| `mistralVibeCookieSource`    | `"auto"`                           | Where the Mistral Vibe session cookie comes from: `"auto"` (env override first, then the Zen browser cookie database), `"env"` (`MISTRAL_VIBE_COOKIE` only), or `"zen-browser"` (the browser database only). |
 | `cursorPlan`                 | `"none"`                           | Cursor included API budget: `none`, `pro`, `pro-plus`, or `ultra`. |
 | `cursorIncludedApiUsd`       | unset                              | Override Cursor's monthly included API budget in USD. |
 | `cursorBillingCycleStartDay` | unset                              | Billing day `1`–`28`. Unset uses the local calendar month. |

@@ -18,6 +18,13 @@ export type MistralVibeUsageResult =
   | { success: true; data: MistralVibeUsage }
   | { success: false; error: string };
 
+/** The API returns 401/403 (or a redirect) when the session cookie is rejected. */
+export const MISTRAL_VIBE_SESSION_EXPIRED_ERROR = "Mistral Vibe session expired; update the cookie";
+
+export function isMistralVibeSessionExpiredError(result: MistralVibeUsageResult): boolean {
+  return !result.success && result.error === MISTRAL_VIBE_SESSION_EXPIRED_ERROR;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -143,7 +150,7 @@ export async function queryMistralVibeUsage(
         ) {
           return {
             success: false,
-            error: "Mistral Vibe session expired; update the cookie",
+            error: MISTRAL_VIBE_SESSION_EXPIRED_ERROR,
           };
         }
         if (!response.ok) {

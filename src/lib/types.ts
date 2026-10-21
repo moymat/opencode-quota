@@ -2,6 +2,7 @@
  * Type definitions for opencode-quota plugin
  */
 
+import type { MistralVibeCookieSource } from "./mistral-vibe-config.js";
 import type { QuotaFormatStyle } from "./quota-format-style.js";
 import { DEFAULT_QUOTA_FORMAT_STYLE } from "./quota-format-style.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
@@ -172,6 +173,12 @@ export interface QuotaToastConfig {
   opencodeGoWindows: OpenCodeGoWindowKey[];
   /** Optional OpenCode Zen monthly budget override in USD. */
   opencodeMonthlyLimit?: number;
+  /**
+   * Where the Mistral Vibe session cookie comes from: `auto` (env override, then
+   * the Zen browser cookie database), `env` (MISTRAL_VIBE_COOKIE only), or
+   * `zen-browser` (the browser database only).
+   */
+  mistralVibeCookieSource: MistralVibeCookieSource;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
@@ -259,6 +266,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   cursorPlan: "none",
   opencodeGoWindows: ["rolling", "weekly", "monthly"],
   opencodeMonthlyLimit: undefined,
+  mistralVibeCookieSource: "auto",
   pricingSnapshot: {
     source: "auto",
     autoRefresh: 7,

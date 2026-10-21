@@ -5,10 +5,10 @@ import type {
   QuotaProviderContext,
   QuotaToastEntry,
 } from "../lib/entries.js";
-import { queryMistralVibeUsage } from "../lib/mistral-vibe.js";
+import { isMistralVibeSessionExpiredError, queryMistralVibeUsage } from "../lib/mistral-vibe.js";
 import {
   DEFAULT_MISTRAL_VIBE_CONFIG_CACHE_MAX_AGE_MS,
-  getMistralVibeConfigDiagnostics,
+  getMistralVibeConfigDiagnosticsCached,
   resolveMistralVibeConfigCached,
 } from "../lib/mistral-vibe-config.js";
 import { getQuotaProviderRuntimeIds } from "../lib/provider-metadata.js";
@@ -74,9 +74,10 @@ function buildEntries(usage: {
 export const mistralVibeProvider: QuotaProvider = {
   id: "mistral-vibe",
 
-  async isAvailable(_ctx: QuotaProviderContext): Promise<boolean> {
+  async isAvailable(ctx: QuotaProviderContext): Promise<boolean> {
     const config = await resolveMistralVibeConfigCached({
       maxAgeMs: DEFAULT_MISTRAL_VIBE_CONFIG_CACHE_MAX_AGE_MS,
+      source: ctx.config?.mistralVibeCookieSource,
     });
     return config.state === "configured";
   },
@@ -87,15 +88,29 @@ export const mistralVibeProvider: QuotaProvider = {
   },
 
   async fetch(ctx: QuotaProviderContext) {
-    const diagnostics = await getMistralVibeConfigDiagnostics();
-    const statusDetails = configStatusDetails({
-      ...diagnostics,
-      error: diagnostics.error
-        ? sanitizeSingleLineDisplaySnippet(diagnostics.error, 120)
-        : undefined,
+    const source = ctx.config?.mistralVibeCookieSource;
+    const diagnostics = await getMistralVibeConfigDiagnosticsCached({
+      maxAgeMs: DEFAULT_MISTRAL_VIBE_CONFIG_CACHE_MAX_AGE_MS,
     });
+    const statusDetails = [
+      ...configStatusDetails({
+        ...diagnostics,
+        error: diagnostics.error
+          ? sanitizeSingleLineDisplaySnippet(diagnostics.error, 120)
+          : undefined,
+      }),
+      ...statusDetailsFromRecord({
+        zen_browser_profile: diagnostics.zenBrowserProfile ?? undefined,
+        zen_browser_cookies:
+          diagnostics.zenBrowserCookiesFound === null
+            ? undefined
+            : String(diagnostics.zenBrowserCookiesFound),
+        zen_browser_error: diagnostics.zenBrowserError ?? undefined,
+      }),
+    ];
     const config = await resolveMistralVibeConfigCached({
       maxAgeMs: DEFAULT_MISTRAL_VIBE_CONFIG_CACHE_MAX_AGE_MS,
+      source,
     });
 
     if (config.state === "none") {
@@ -111,17 +126,25 @@ export const mistralVibeProvider: QuotaProvider = {
       );
     }
 
-    const result = await queryMistralVibeUsage(config.config.cookie, {
-      requestTimeoutMs: ctx.config?.requestTimeoutMsConfigured
-        ? ctx.config.requestTimeoutMs
-        : undefined,
-    });
+    const requestTimeoutMs = ctx.config?.requestTimeoutMsConfigured
+      ? ctx.config.requestTimeoutMs
+      : undefined;
+    const candidates = [config.config.cookie, ...(config.config.alternates ?? [])];
+    let result = await queryMistralVibeUsage(candidates[0], { requestTimeoutMs });
+    // A rejected session (rotation or revocation) falls through to the next
+    // candidate, e.g. the browser's current cookie after an env cookie died.
+    for (const alternate of candidates.slice(1)) {
+      if (result.success || !isMistralVibeSessionExpiredError(result)) break;
+      result = await queryMistralVibeUsage(alternate, { requestTimeoutMs });
+    }
 
     if (!result.success) {
-      return withStatusDetails(
-        attemptedErrorResult(MISTRAL_VIBE_LABEL, result.error),
-        statusDetails,
-      );
+      const message = isMistralVibeSessionExpiredError(result)
+        ? config.source.startsWith("zen-browser:")
+          ? `${result.error} Sign in again at chat.mistral.ai in Zen browser.`
+          : result.error
+        : result.error;
+      return withStatusDetails(attemptedErrorResult(MISTRAL_VIBE_LABEL, message), statusDetails);
     }
 
     return withStatusDetails(attemptedResult(buildEntries(result.data)), [

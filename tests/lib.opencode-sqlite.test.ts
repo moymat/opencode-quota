@@ -1,10 +1,11 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it, vi } from "vitest";
 
-import { openOpenCodeSqliteReadOnly } from "../src/lib/opencode-sqlite.js";
+import { openOpenCodeSqliteReadOnly, openSqliteCopyReadOnly } from "../src/lib/opencode-sqlite.js";
 
 const runtimePaths = vi.hoisted(() => ({ dataDir: "" }));
 
@@ -124,6 +125,32 @@ describe("opencode sqlite adapter", () => {
       expect(messages.every((message) => typeof message.time?.completed === "number")).toBe(true);
     } finally {
       runtimePaths.dataDir = "";
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads a copied database through openSqliteCopyReadOnly", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "opencode-sqlite-copy-"));
+    const dbPath = join(dir, "source.db");
+
+    try {
+      const writer = new DatabaseSync(dbPath);
+      writer.exec(`
+        CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+        INSERT INTO t (name) VALUES ('zen');
+      `);
+      writer.close();
+
+      const conn = await openSqliteCopyReadOnly(dbPath);
+      try {
+        expect(conn.get<{ name: string }>("SELECT name FROM t WHERE id = ?", [1])).toEqual({
+          name: "zen",
+        });
+      } finally {
+        conn.close();
+      }
+      expect(existsSync(dbPath)).toBe(true);
+    } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });

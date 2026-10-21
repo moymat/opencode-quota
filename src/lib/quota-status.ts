@@ -936,6 +936,7 @@ export async function buildQuotaStatusReportDocument(
       detailKeys: OPENCODE_GO_STATUS_DETAIL_KEYS,
     },
     { id: "opencode_zen", title: "opencode_zen:", providerId: "opencode" },
+    { id: "mistral_vibe", title: "mistral_vibe:", providerId: "mistral-vibe" },
     { id: "xiaomi", title: "xiaomi:", providerId: "xiaomi" },
     { id: "zai", title: "zai:", providerId: "zai" },
     { id: "zhipu", title: "zhipu:", providerId: "zhipu" },

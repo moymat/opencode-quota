@@ -1709,34 +1709,35 @@ describe("buildQuotaStatusReport", () => {
       .join("\n");
     expect(titles).toMatchInlineSnapshot(`
       "toast:
-paths:
-credential_source:
-openai:
-anthropic:
-cursor:
-minimax:
-minimax_china:
-kimi:
-kimi_cn:
-opencode_go:
-opencode_zen:
-xiaomi:
-zai:
-zhipu:
-synthetic:
-chutes:
-deepseek:
-xai:
-nanogpt:
-openrouter:
-copilot_quota_auth:
-google_gemini_cli:
-google_agy:
-storage:
-pricing_snapshot:
-supported_providers_pricing:
-unpriced_models:
-unknown_pricing:"
+      paths:
+      credential_source:
+      openai:
+      anthropic:
+      cursor:
+      minimax:
+      minimax_china:
+      kimi:
+      kimi_cn:
+      opencode_go:
+      opencode_zen:
+      mistral_vibe:
+      xiaomi:
+      zai:
+      zhipu:
+      synthetic:
+      chutes:
+      deepseek:
+      xai:
+      nanogpt:
+      openrouter:
+      copilot_quota_auth:
+      google_gemini_cli:
+      google_agy:
+      storage:
+      pricing_snapshot:
+      supported_providers_pricing:
+      unpriced_models:
+      unknown_pricing:"
     `);
   });
 });

@@ -1,3 +1,4 @@
+import type { MistralVibeCookieSource } from "./mistral-vibe-config.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { QuotaTelemetryToken } from "./quota-telemetry.js";
 import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
@@ -377,6 +378,7 @@ export interface QuotaProviderContext {
     cursorBillingCycleStartDay?: number;
     opencodeGoWindows?: OpenCodeGoWindowKey[];
     opencodeMonthlyLimit?: number;
+    mistralVibeCookieSource?: MistralVibeCookieSource;
     requestTimeoutMs?: number;
     /** Provider-result cache TTL used by aggregate remote definitions. */
     providerCacheTtlMs?: number;

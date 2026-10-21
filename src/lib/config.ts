@@ -10,6 +10,8 @@
 import { existsSync } from "fs";
 import { join } from "path";
 import { isResetTimeDecimals } from "./format-utils.js";
+import type { MistralVibeCookieSource } from "./mistral-vibe-config.js";
+import { isMistralVibeCookieSource } from "./mistral-vibe-config.js";
 import {
   buildOpenCodeConfigCandidates,
   readOpenCodeConfigCandidate,
@@ -60,6 +62,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "cursorBillingCycleStartDay",
   "opencodeGoWindows",
   "opencodeMonthlyLimit",
+  "mistralVibeCookieSource",
   "pricingSnapshot.source",
   "pricingSnapshot.autoRefresh",
   "showOnIdle",
@@ -175,6 +178,7 @@ type ValidatedQuotaToastPatch = {
   cursorBillingCycleStartDay?: number;
   opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">;
   opencodeMonthlyLimit?: number;
+  mistralVibeCookieSource?: MistralVibeCookieSource;
   pricingSnapshot?: PricingSnapshotPatch;
   showOnIdle?: boolean;
   showOnQuestion?: boolean;
@@ -346,6 +350,7 @@ function cloneConfig(config: QuotaToastConfig): QuotaToastConfig {
     },
     opencodeGoWindows: [...config.opencodeGoWindows],
     opencodeMonthlyLimit: config.opencodeMonthlyLimit,
+    mistralVibeCookieSource: config.mistralVibeCookieSource,
     pricingSnapshot: { ...config.pricingSnapshot },
     tuiSidebarPanel: { ...config.tuiSidebarPanel },
     tuiCompactStatus: { ...config.tuiCompactStatus },
@@ -779,6 +784,13 @@ function extractValidatedQuotaToastPatch(
     patch.opencodeMonthlyLimit = quotaToastConfig.opencodeMonthlyLimit;
   }
 
+  if (
+    hasOwnKey(quotaToastConfig, "mistralVibeCookieSource") &&
+    isMistralVibeCookieSource(quotaToastConfig.mistralVibeCookieSource)
+  ) {
+    patch.mistralVibeCookieSource = quotaToastConfig.mistralVibeCookieSource;
+  }
+
   if (hasOwnKey(quotaToastConfig, "opencodeZenDisplay")) {
     reportIssue?.(
       "opencodeZenDisplay",
@@ -1037,6 +1049,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "opencodeMonthlyLimit")) {
     config.opencodeMonthlyLimit = patch.opencodeMonthlyLimit;
     applySettingSource(settingSources, "opencodeMonthlyLimit", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "mistralVibeCookieSource")) {
+    config.mistralVibeCookieSource = patch.mistralVibeCookieSource!;
+    applySettingSource(settingSources, "mistralVibeCookieSource", sourcePath);
   }
 
   if (patch.pricingSnapshot) {

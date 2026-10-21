@@ -10,17 +10,13 @@ import {
 const mocks = vi.hoisted(() => ({
   resolveMistralVibeConfigCached: vi.fn(),
   queryMistralVibeUsage: vi.fn(),
+  getMistralVibeConfigDiagnosticsCached: vi.fn(),
 }));
 
 vi.mock("../src/lib/mistral-vibe-config.js", () => ({
   DEFAULT_MISTRAL_VIBE_CONFIG_CACHE_MAX_AGE_MS: 30_000,
   resolveMistralVibeConfigCached: mocks.resolveMistralVibeConfigCached,
-  getMistralVibeConfigDiagnostics: vi.fn(async () => ({
-    state: "none",
-    source: null,
-    error: null,
-    checkedPaths: ["env:MISTRAL_VIBE_COOKIE"],
-  })),
+  getMistralVibeConfigDiagnosticsCached: mocks.getMistralVibeConfigDiagnosticsCached,
 }));
 
 vi.mock("../src/lib/mistral-vibe.js", async (importOriginal) => {
@@ -73,6 +69,16 @@ function usage(overrides: Record<string, unknown> = {}): void {
 describe("Mistral Vibe provider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getMistralVibeConfigDiagnosticsCached.mockResolvedValue({
+      state: "none",
+      source: null,
+      error: null,
+      checkedPaths: ["env:MISTRAL_VIBE_COOKIE"],
+      zenBrowserCheckedDirs: [],
+      zenBrowserProfile: null,
+      zenBrowserCookiesFound: null,
+      zenBrowserError: null,
+    });
   });
 
   it("uses the canonical mistral-vibe provider identity", () => {
@@ -192,6 +198,105 @@ describe("Mistral Vibe provider", () => {
         { key: "usage_percentage", value: "8.416463" },
         { key: "payg_enabled", value: "false" },
         { key: "reset_at", value: "2026-11-01T00:00:00.000Z" },
+      ]),
+    );
+  });
+
+  it("tries alternate cookies when the primary session expired", async () => {
+    mocks.resolveMistralVibeConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "env:MISTRAL_VIBE_COOKIE",
+      config: { cookie: 'ory_session_x="dead"', alternates: ["ory_session_y=fresh"] },
+    });
+    mocks.queryMistralVibeUsage
+      .mockResolvedValueOnce({
+        success: false,
+        error: "Mistral Vibe session expired; update the cookie",
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: { usagePercentage: 10, paygEnabled: false, resetAtIso: null },
+      });
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(mocks.queryMistralVibeUsage).toHaveBeenCalledTimes(2);
+    expect(mocks.queryMistralVibeUsage).toHaveBeenNthCalledWith(1, 'ory_session_x="dead"', {
+      requestTimeoutMs: undefined,
+    });
+    expect(mocks.queryMistralVibeUsage).toHaveBeenNthCalledWith(2, "ory_session_y=fresh", {
+      requestTimeoutMs: undefined,
+    });
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries[0]?.percentRemaining).toBeCloseTo(90, 8);
+  });
+
+  it("does not try alternates for non-session errors", async () => {
+    mocks.resolveMistralVibeConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "env:MISTRAL_VIBE_COOKIE",
+      config: { cookie: "ory_session_x=one", alternates: ["ory_session_y=two"] },
+    });
+    mocks.queryMistralVibeUsage.mockResolvedValueOnce({
+      success: false,
+      error: "Mistral Vibe request failed (HTTP 500)",
+    });
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(mocks.queryMistralVibeUsage).toHaveBeenCalledTimes(1);
+    expectAttemptedWithErrorLabel(result, "Mistral Vibe");
+    expect(result.errors[0]?.message).toBe("Mistral Vibe request failed (HTTP 500)");
+  });
+
+  it("adds a Zen sign-in hint for browser-sourced session errors", async () => {
+    mocks.resolveMistralVibeConfigCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "zen-browser:/home/u/.config/zen/prof",
+      config: { cookie: "ory_session_x=one" },
+    });
+    mocks.queryMistralVibeUsage.mockResolvedValueOnce({
+      success: false,
+      error: "Mistral Vibe session expired; update the cookie",
+    });
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(result.errors[0]?.message).toBe(
+      "Mistral Vibe session expired; update the cookie Sign in again at chat.mistral.ai in Zen browser.",
+    );
+    expect(JSON.stringify(result)).not.toContain("ory_session_x=one");
+  });
+
+  it("passes the configured cookie source to the resolver", async () => {
+    mocks.resolveMistralVibeConfigCached.mockResolvedValueOnce({ state: "none" });
+
+    await mistralVibeProvider.fetch(context({ mistralVibeCookieSource: "zen-browser" }));
+
+    expect(mocks.resolveMistralVibeConfigCached).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "zen-browser" }),
+    );
+  });
+
+  it("exposes Zen browser diagnostics in status details", async () => {
+    mocks.getMistralVibeConfigDiagnosticsCached.mockResolvedValueOnce({
+      state: "configured",
+      source: "zen-browser:/zen/prof",
+      error: null,
+      checkedPaths: ["env:MISTRAL_VIBE_COOKIE"],
+      zenBrowserCheckedDirs: ["/zen"],
+      zenBrowserProfile: "/zen/prof",
+      zenBrowserCookiesFound: 2,
+      zenBrowserError: null,
+    });
+    mocks.resolveMistralVibeConfigCached.mockResolvedValueOnce({ state: "none" });
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(result.statusDetails).toEqual(
+      expect.arrayContaining([
+        { key: "zen_browser_profile", value: "/zen/prof" },
+        { key: "zen_browser_cookies", value: "2" },
       ]),
     );
   });
