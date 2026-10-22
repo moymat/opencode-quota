@@ -4,9 +4,13 @@ const mocks = vi.hoisted(() => ({
   fetchWithTimeout: vi.fn(),
 }));
 
-vi.mock("../src/lib/http.js", () => ({
-  fetchWithTimeout: mocks.fetchWithTimeout,
-}));
+vi.mock("../src/lib/http.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/lib/http.js")>();
+  return {
+    ...original,
+    fetchWithTimeout: mocks.fetchWithTimeout,
+  };
+});
 
 import { parseMistralVibeUsageResponse, queryMistralVibeUsage } from "../src/lib/mistral-vibe.js";
 

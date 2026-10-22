@@ -235,6 +235,27 @@ describe("Mistral Vibe config resolution", () => {
     expect(envCached).toEqual(envResult);
   });
 
+  it("keeps the browser's freshest-first cookie order as candidates", async () => {
+    zenMocks.readZenBrowserCookies.mockResolvedValue({
+      state: "ok",
+      profileDir: "/zen/prof",
+      cookies: [
+        { ...zenCookie('"fresh"', "ory_session_a"), expiryMs: 9_000 },
+        { ...zenCookie("stale", "ory_session_a"), expiryMs: 1_000 },
+      ],
+    });
+    const { resolveMistralVibeConfig } = await import("../src/lib/mistral-vibe-config.js");
+
+    await expect(resolveMistralVibeConfig()).resolves.toEqual({
+      state: "configured",
+      source: "zen-browser:/zen/prof",
+      config: {
+        cookie: 'ory_session_a="fresh"',
+        alternates: ["ory_session_a=fresh", "ory_session_a=stale"],
+      },
+    });
+  });
+
   it("reports browser diagnostics without exposing cookie values", async () => {
     zenMocks.readZenBrowserCookies.mockResolvedValue({
       state: "ok",

@@ -96,7 +96,7 @@ These show only your own member API key's usage, not the whole organization's.
 
 | Provider     | Auth/setup                   | Data from  | Reports |
 | ------------ | ---------------------------- | ---------- | ------- |
-| Mistral Vibe | [Zen browser session](#mistral-vibe) (or env override) | Remote API | Quota   |
+| Mistral      | [Zen browser session](#mistral-vibe) (or env override) | Remote API | Quota and budget |
 
 ### How rows are shown
 
@@ -540,23 +540,31 @@ To copy the cookie:
 
 <a id="mistral-vibe"></a>
 
-### Mistral Vibe
+### Mistral
 
-Reads the Vibe dashboard usage API (`chat.mistral.ai`) with the Ory session cookie. By default the cookie is read straight from the **Zen browser** profile's `cookies.sqlite`, so the row follows the browser's live session: when Ory refreshes or rotates the session, the next fetch picks up the new cookie automatically, and a revoked session only needs a fresh sign-in at `chat.mistral.ai` in Zen browser.
+Reads the monthly credit budgets of your Mistral subscription from the admin billing API (`admin.mistral.ai/api/local-trpc/billing.budget`) with the Ory session cookie, and renders two lines:
+
+- **Mistral API** — the La Plateforme API credits included in the plan. A monthly quota bar with the used percentage, and below it the used and limit amounts in the plan currency (for example `Used: EUR 0.41 / Limit: EUR 25.50`).
+- **Mistral Vibe** — the Vibe (Le Chat) credits, same shape (for example `Used: EUR 35.05 / Limit: EUR 255.00`).
+
+The same `ory_session_*` cookie authenticates both `chat.mistral.ai` and `admin.mistral.ai` (the session lives on the bare `mistral.ai` domain), so one sign-in covers both lines. By default the cookie is read straight from the **Zen browser** profile's `cookies.sqlite`, so the rows follow the browser's live session: when Ory refreshes or rotates the session, the next fetch picks up the new cookie automatically, and a revoked session only needs a fresh sign-in at `chat.mistral.ai` in Zen browser.
 
 - Sign in at `chat.mistral.ai` in Zen browser. Firefox-based builds store the profile under `~/.config/zen` (honoring `XDG_CONFIG_HOME`); `~/.zen` and the Flatpak path are also searched. `/quota_status` shows the resolved profile and the number of `ory_session_*` cookies found under `mistral_vibe:`.
 - Only `ory_session_*` cookies for `*.mistral.ai` hosts are read; CSRF, Cloudflare, and tracking cookies are never read or sent. The database is read through a temporary copy (never opened live), so a running browser never blocks the read, and queries are locked read-only.
-- The session lasts about 90 days; when it is revoked or expires, the row reports that the cookie must be updated and tells you to sign in again in Zen browser.
+- The session lasts about 90 days; when it is revoked or expires, the affected line reports that the cookie must be updated and tells you to sign in again in Zen browser.
+- **Fallback:** the Vibe line can also be read from the chat code usage API (`chat.mistral.ai/api/code-trpc/apiKey.getUsage`), which reports the same monthly percentage and reset time but no euro amounts. If both endpoints are unreachable, the Vibe line shows that error with a sign-in hint. The API line needs the admin billing endpoint: when it is unreachable, the provider reports an error telling you to sign in at `admin.mistral.ai`; a plan without API credits simply shows no API line.
+- **Reset fallback:** each line uses its own `reset_at`; when absent, the root budget's `reset_at` is used, then the chat API's reset time (all budgets share the same monthly cycle).
+- The amounts are typed accounting facts: the summary line shows used and limit (`Used: EUR 0.41 / Limit: EUR 25.50`), detailed output also lists the remaining amount, and JSON exports carry used, limit, and remaining per line.
 - **Override:** set `MISTRAL_VIBE_COOKIE` in the environment that runs the OpenCode server to use a copied cookie instead:
 
   ```bash
   export MISTRAL_VIBE_COOKIE='ory_session_...=...'
   ```
 
-  In `auto` mode (the default) the env cookie is tried first and the browser cookies are tried as fallbacks when the API rejects it; a copied value dies with a session rotation, so the browser source is the durable option. `mistralVibeCookieSource` in `quota-toast.jsonc` pins the source: `"auto"` (default), `"env"`, or `"zen-browser"`.
-- To copy the cookie manually: sign in at `chat.mistral.ai`, open the browser Developer Tools, then **Network**, refresh the Vibe dashboard, select a `chat.mistral.ai` request (for example `apiKey.getUsage`), and copy its **Request Headers → Cookie** value. The value may start with `Cookie:` and must be a single line; only `ory_session_*` pairs are kept.
+  In `auto` mode (the default) the env cookie is tried first and the browser cookies are tried as fallbacks when an API rejects it; a copied value dies with a session rotation, so the browser source is the durable option. `mistralVibeCookieSource` in `quota-toast.jsonc` pins the source: `"auto"` (default), `"env"`, or `"zen-browser"`.
+- To copy the cookie manually: sign in at `chat.mistral.ai`, open the browser Developer Tools, then **Network**, refresh the page, select a `chat.mistral.ai` request (for example `apiKey.getUsage`), and copy its **Request Headers → Cookie** value. The value may start with `Cookie:` and must be a single line; only `ory_session_*` pairs are kept.
 - Provider id: `mistral-vibe`. With a manual provider list, include `mistral-vibe`.
-- The dashboard reports usage and the next reset. `usagePercentage` is converted to the remaining percentage, and `paygEnabled` is a supplementary status row.
+- Both endpoints are the tRPC backends of the Mistral web apps; they are not public APIs and Mistral may change them. The chat endpoint reports `usagePercentage` (converted to the remaining percentage) and `paygEnabled` (surfaced in `/quota_status` diagnostics, not as a panel row).
 
 <a id="ollama-cloud"></a>
 

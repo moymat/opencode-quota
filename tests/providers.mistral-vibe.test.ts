@@ -9,8 +9,9 @@ import {
 
 const mocks = vi.hoisted(() => ({
   resolveMistralVibeConfigCached: vi.fn(),
-  queryMistralVibeUsage: vi.fn(),
   getMistralVibeConfigDiagnosticsCached: vi.fn(),
+  queryMistralVibeUsage: vi.fn(),
+  queryMistralAdminBudget: vi.fn(),
 }));
 
 vi.mock("../src/lib/mistral-vibe-config.js", () => ({
@@ -27,6 +28,14 @@ vi.mock("../src/lib/mistral-vibe.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/lib/mistral-budget.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../src/lib/mistral-budget.js")>();
+  return {
+    ...original,
+    queryMistralAdminBudget: mocks.queryMistralAdminBudget,
+  };
+});
+
 import { mistralVibeProvider } from "../src/providers/mistral-vibe.js";
 
 const quotaAccounting = {
@@ -35,26 +44,44 @@ const quotaAccounting = {
   ownership: "maintained",
   authority: "provider_reported",
 } as const;
-const statusAccounting = {
-  resultType: "status",
-  acquisitionMethod: "dashboard_scrape",
-  ownership: "maintained",
-  authority: "provider_reported",
-} as const;
+
+const EUR = { kind: "currency", code: "EUR" } as const;
 
 function context(config: Record<string, unknown> = {}): any {
   return { config };
 }
 
-function configured(): void {
+function configured(source = "env:MISTRAL_VIBE_COOKIE"): void {
   mocks.resolveMistralVibeConfigCached.mockResolvedValueOnce({
     state: "configured",
-    source: "env:MISTRAL_VIBE_COOKIE",
+    source,
     config: { cookie: 'ory_session_x="session-secret"' },
   });
 }
 
-function usage(overrides: Record<string, unknown> = {}): void {
+function adminBudget(overrides: Record<string, unknown> = {}): void {
+  mocks.queryMistralAdminBudget.mockResolvedValueOnce({
+    success: true,
+    data: {
+      rootResetAtIso: "2026-11-01T00:00:00.000Z",
+      api: {
+        usagePercentage: 10,
+        budget: 25.5,
+        currency: "EUR",
+        resetAtIso: "2026-11-01T00:00:00.000Z",
+      },
+      vibe: {
+        usagePercentage: 50,
+        budget: 255,
+        currency: "EUR",
+        resetAtIso: "2026-11-01T00:00:00.000Z",
+      },
+      ...overrides,
+    },
+  });
+}
+
+function chatUsage(overrides: Record<string, unknown> = {}): void {
   mocks.queryMistralVibeUsage.mockResolvedValueOnce({
     success: true,
     data: {
@@ -110,6 +137,7 @@ describe("Mistral Vibe provider", () => {
 
     expectNotAttempted(await mistralVibeProvider.fetch(context()));
     expect(mocks.queryMistralVibeUsage).not.toHaveBeenCalled();
+    expect(mocks.queryMistralAdminBudget).not.toHaveBeenCalled();
   });
 
   it("projects invalid configuration as a safe attempted error", async () => {
@@ -128,53 +156,158 @@ describe("Mistral Vibe provider", () => {
     expect(JSON.stringify(result)).not.toContain("ory_session");
   });
 
-  it("maps usage to a monthly remaining percentage and reset", async () => {
+  it("renders API and Vibe budget bars with typed euro basis facts", async () => {
     configured();
-    usage();
+    adminBudget();
+    chatUsage();
 
     const result = await mistralVibeProvider.fetch(context());
 
     expectAttemptedWithNoErrors(result);
     expect(result.entries).toHaveLength(2);
-    expect(result.entries[0]).toMatchObject({
+    expect(result.entries[0]).toEqual({
       accounting: quotaAccounting,
-      name: "Mistral Vibe Monthly",
-      group: "Mistral Vibe",
-      percentRemaining: 91.58353656,
+      name: "Mistral API Monthly",
+      group: "Mistral API",
+      percentRemaining: 90,
       resetTimeIso: "2026-11-01T00:00:00.000Z",
       semantic: {
         metric: { kind: "window", window: "month" },
         prominence: "primary",
       },
+      basis: {
+        used: {
+          quantity: { decimal: "2.55", unit: EUR },
+          authority: "locally_derived",
+        },
+        limit: {
+          quantity: { decimal: "25.5", unit: EUR },
+          authority: "provider_reported",
+        },
+        remaining: {
+          quantity: { decimal: "22.95", unit: EUR },
+          authority: "locally_derived",
+        },
+      },
+      sortPriority: 0,
     });
     expect(result.entries[1]).toEqual({
-      accounting: statusAccounting,
-      kind: "boolean",
-      name: "mistral-vibe-payg",
+      accounting: quotaAccounting,
+      name: "Mistral Vibe Monthly",
       group: "Mistral Vibe",
+      percentRemaining: 50,
+      resetTimeIso: "2026-11-01T00:00:00.000Z",
       semantic: {
-        metric: { kind: "named", name: "Pay-as-you-go" },
-        prominence: "supplementary",
+        metric: { kind: "window", window: "month" },
+        prominence: "primary",
       },
-      value: false,
+      basis: {
+        used: {
+          quantity: { decimal: "127.5", unit: EUR },
+          authority: "locally_derived",
+        },
+        limit: {
+          quantity: { decimal: "255", unit: EUR },
+          authority: "provider_reported",
+        },
+        remaining: {
+          quantity: { decimal: "127.5", unit: EUR },
+          authority: "locally_derived",
+        },
+      },
+      sortPriority: 0,
     });
     visibleEntries(result.entries, "mistral-vibe");
   });
 
-  it("supports over-limit usage and an enabled PAYG state", async () => {
+  it("invites a sign-in for the API line when the admin endpoint rejects the session", async () => {
+    configured("zen-browser:/home/u/.config/zen/prof");
+    mocks.queryMistralAdminBudget.mockResolvedValueOnce({
+      success: false,
+      error: "Mistral admin session expired; update the cookie",
+    });
+    chatUsage();
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(result.attempted).toBe(true);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toMatchObject({
+      name: "Mistral Vibe Monthly",
+      group: "Mistral Vibe",
+      percentRemaining: 91.58353656,
+    });
+    expect(result.entries[0]).not.toHaveProperty("basis");
+    expect(result.errors).toEqual([
+      {
+        label: "Mistral API",
+        message:
+          "Mistral admin session expired; update the cookie Sign in again at admin.mistral.ai in Zen browser.",
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("session-secret");
+    visibleEntries(result.entries, "mistral-vibe");
+  });
+
+  it("renders no API line and no error when the plan reports no API credits", async () => {
     configured();
-    usage({ usagePercentage: 128.5, paygEnabled: true, resetAtIso: null });
+    adminBudget({ rootResetAtIso: null, api: null });
+    chatUsage();
 
     const result = await mistralVibeProvider.fetch(context());
 
     expectAttemptedWithNoErrors(result);
-    expect(result.entries[0]?.percentRemaining).toBeCloseTo(-28.5, 8);
-    expect(result.entries[1]).toMatchObject({ kind: "boolean", value: true });
-    expect(result.entries[0]).not.toHaveProperty("resetTimeIso");
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries.every((entry) => entry.group === "Mistral Vibe")).toBe(true);
+    visibleEntries(result.entries, "mistral-vibe");
   });
 
-  it("passes an expired session through as a safe provider error", async () => {
+  it("keeps both budget bars when the chat API fails", async () => {
     configured();
+    adminBudget();
+    mocks.queryMistralVibeUsage.mockResolvedValueOnce({
+      success: false,
+      error: "Mistral Vibe request failed (HTTP 500)",
+    });
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries.some((entry) => entry.name === "mistral-vibe-payg")).toBe(false);
+    expect(result.statusDetails).toEqual(
+      expect.arrayContaining([{ key: "chat_source", value: "failed" }]),
+    );
+    visibleEntries(result.entries, "mistral-vibe");
+  });
+
+  it("falls back to the chat API for the Vibe line when the plan reports no Vibe budget", async () => {
+    configured();
+    adminBudget({ vibe: null });
+    chatUsage();
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[1]).toMatchObject({
+      name: "Mistral Vibe Monthly",
+      group: "Mistral Vibe",
+      percentRemaining: 91.58353656,
+    });
+    expect(result.entries[1]).not.toHaveProperty("basis");
+    expect(result.statusDetails).toEqual(
+      expect.arrayContaining([{ key: "vibe_source", value: "chat-api" }]),
+    );
+    visibleEntries(result.entries, "mistral-vibe");
+  });
+
+  it("invites a sign-in for both lines when neither endpoint is reachable", async () => {
+    configured("zen-browser:/home/u/.config/zen/prof");
+    mocks.queryMistralAdminBudget.mockResolvedValueOnce({
+      success: false,
+      error: "Mistral admin session expired; update the cookie",
+    });
     mocks.queryMistralVibeUsage.mockResolvedValueOnce({
       success: false,
       error: "Mistral Vibe session expired; update the cookie",
@@ -182,22 +315,139 @@ describe("Mistral Vibe provider", () => {
 
     const result = await mistralVibeProvider.fetch(context());
 
-    expectAttemptedWithErrorLabel(result, "Mistral Vibe");
-    expect(result.errors[0]?.message).toBe("Mistral Vibe session expired; update the cookie");
+    expect(result.attempted).toBe(true);
+    expect(result.entries).toEqual([]);
+    expect(result.errors).toEqual([
+      {
+        label: "Mistral API",
+        message:
+          "Mistral admin session expired; update the cookie Sign in again at admin.mistral.ai in Zen browser.",
+      },
+      {
+        label: "Mistral Vibe",
+        message:
+          "Mistral Vibe session expired; update the cookie Sign in again at chat.mistral.ai in Zen browser.",
+      },
+    ]);
     expect(JSON.stringify(result)).not.toContain("session-secret");
   });
 
-  it("exposes safe usage facts in status details", async () => {
+  it("reports non-session failures as plain errors", async () => {
     configured();
-    usage();
+    mocks.queryMistralAdminBudget.mockResolvedValueOnce({
+      success: false,
+      error: "Mistral admin request failed (HTTP 500)",
+    });
+    chatUsage();
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(result.errors).toEqual([
+      { label: "Mistral API", message: "Mistral admin request failed (HTTP 500)" },
+    ]);
+  });
+
+  it("uses the root budget reset when a line reports none", async () => {
+    configured();
+    adminBudget({
+      rootResetAtIso: "2026-12-01T00:00:00.000Z",
+      api: {
+        usagePercentage: 10,
+        budget: 25.5,
+        currency: "EUR",
+        resetAtIso: null,
+      },
+    });
+    chatUsage();
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(result.entries[0]).toMatchObject({
+      resetTimeIso: "2026-12-01T00:00:00.000Z",
+    });
+  });
+
+  it("uses the chat reset as the last reset fallback", async () => {
+    configured();
+    adminBudget({
+      rootResetAtIso: null,
+      api: { usagePercentage: 10, budget: 25.5, currency: "EUR", resetAtIso: null },
+      vibe: { usagePercentage: 50, budget: 255, currency: "EUR", resetAtIso: null },
+    });
+    chatUsage({ resetAtIso: "2026-11-05T00:00:00.000Z" });
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(result.entries[0]).toMatchObject({ resetTimeIso: "2026-11-05T00:00:00.000Z" });
+    expect(result.entries[1]).toMatchObject({ resetTimeIso: "2026-11-05T00:00:00.000Z" });
+  });
+
+  it("falls back to the root reset for a chat-sourced Vibe line without reset", async () => {
+    configured();
+    adminBudget({
+      rootResetAtIso: "2026-12-01T00:00:00.000Z",
+      vibe: null,
+    });
+    chatUsage({ resetAtIso: null });
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expect(result.entries[1]).toMatchObject({
+      name: "Mistral Vibe Monthly",
+      resetTimeIso: "2026-12-01T00:00:00.000Z",
+    });
+  });
+
+  it("supports over-limit usage with a clamped remaining basis", async () => {
+    configured();
+    adminBudget({
+      vibe: { usagePercentage: 120, budget: 255, currency: "EUR", resetAtIso: null },
+    });
+    chatUsage();
+
+    const result = await mistralVibeProvider.fetch(context());
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries[1]?.percentRemaining).toBeCloseTo(-20, 8);
+    expect(result.entries[1]).toMatchObject({
+      basis: {
+        used: {
+          quantity: { decimal: "306", unit: EUR },
+          authority: "locally_derived",
+        },
+        remaining: {
+          quantity: { decimal: "0", unit: EUR },
+          authority: "locally_derived",
+        },
+      },
+    });
+  });
+
+  it("exposes safe usage facts and euro amounts in details", async () => {
+    configured();
+    adminBudget();
+    chatUsage();
 
     const result = await mistralVibeProvider.fetch(context());
 
     expect(result.statusDetails).toEqual(
       expect.arrayContaining([
-        { key: "usage_percentage", value: "8.416463" },
-        { key: "payg_enabled", value: "false" },
-        { key: "reset_at", value: "2026-11-01T00:00:00.000Z" },
+        { key: "admin_source", value: "ok" },
+        { key: "chat_source", value: "ok" },
+        { key: "vibe_source", value: "admin" },
+        { key: "api_usage_percentage", value: "10.000000" },
+        { key: "vibe_usage_percentage", value: "50.000000" },
+        { key: "vibe_payg_enabled", value: "false" },
+        { key: "api_reset_at", value: "2026-11-01T00:00:00.000Z" },
+        { key: "vibe_reset_at", value: "2026-11-01T00:00:00.000Z" },
+      ]),
+    );
+    expect(result.rawDetails).toEqual(
+      expect.arrayContaining([
+        { key: "api_budget", value: "EUR 25.50" },
+        { key: "api_used", value: "EUR 2.55" },
+        { key: "vibe_budget", value: "EUR 255.00" },
+        { key: "vibe_used", value: "EUR 127.50" },
       ]),
     );
   });
@@ -208,64 +458,56 @@ describe("Mistral Vibe provider", () => {
       source: "env:MISTRAL_VIBE_COOKIE",
       config: { cookie: 'ory_session_x="dead"', alternates: ["ory_session_y=fresh"] },
     });
-    mocks.queryMistralVibeUsage
+    mocks.queryMistralAdminBudget
       .mockResolvedValueOnce({
         success: false,
-        error: "Mistral Vibe session expired; update the cookie",
+        error: "Mistral admin session expired; update the cookie",
       })
       .mockResolvedValueOnce({
         success: true,
-        data: { usagePercentage: 10, paygEnabled: false, resetAtIso: null },
+        data: {
+          rootResetAtIso: null,
+          api: null,
+          vibe: { usagePercentage: 10, budget: 255, currency: "EUR", resetAtIso: null },
+        },
       });
+    mocks.queryMistralVibeUsage.mockResolvedValueOnce({
+      success: true,
+      data: { usagePercentage: 10, paygEnabled: false, resetAtIso: null },
+    });
 
     const result = await mistralVibeProvider.fetch(context());
 
-    expect(mocks.queryMistralVibeUsage).toHaveBeenCalledTimes(2);
-    expect(mocks.queryMistralVibeUsage).toHaveBeenNthCalledWith(1, 'ory_session_x="dead"', {
+    expect(mocks.queryMistralAdminBudget).toHaveBeenCalledTimes(2);
+    expect(mocks.queryMistralAdminBudget).toHaveBeenNthCalledWith(1, 'ory_session_x="dead"', {
       requestTimeoutMs: undefined,
     });
-    expect(mocks.queryMistralVibeUsage).toHaveBeenNthCalledWith(2, "ory_session_y=fresh", {
+    expect(mocks.queryMistralAdminBudget).toHaveBeenNthCalledWith(2, "ory_session_y=fresh", {
       requestTimeoutMs: undefined,
     });
+    expect(mocks.queryMistralVibeUsage).toHaveBeenCalledTimes(1);
     expectAttemptedWithNoErrors(result);
     expect(result.entries[0]?.percentRemaining).toBeCloseTo(90, 8);
   });
 
-  it("does not try alternates for non-session errors", async () => {
+  it("does not try admin alternates for non-session errors", async () => {
     mocks.resolveMistralVibeConfigCached.mockResolvedValueOnce({
       state: "configured",
       source: "env:MISTRAL_VIBE_COOKIE",
       config: { cookie: "ory_session_x=one", alternates: ["ory_session_y=two"] },
     });
-    mocks.queryMistralVibeUsage.mockResolvedValueOnce({
+    mocks.queryMistralAdminBudget.mockResolvedValueOnce({
       success: false,
-      error: "Mistral Vibe request failed (HTTP 500)",
+      error: "Mistral admin request failed (HTTP 500)",
     });
+    chatUsage();
 
     const result = await mistralVibeProvider.fetch(context());
 
-    expect(mocks.queryMistralVibeUsage).toHaveBeenCalledTimes(1);
-    expectAttemptedWithErrorLabel(result, "Mistral Vibe");
-    expect(result.errors[0]?.message).toBe("Mistral Vibe request failed (HTTP 500)");
-  });
-
-  it("adds a Zen sign-in hint for browser-sourced session errors", async () => {
-    mocks.resolveMistralVibeConfigCached.mockResolvedValueOnce({
-      state: "configured",
-      source: "zen-browser:/home/u/.config/zen/prof",
-      config: { cookie: "ory_session_x=one" },
-    });
-    mocks.queryMistralVibeUsage.mockResolvedValueOnce({
-      success: false,
-      error: "Mistral Vibe session expired; update the cookie",
-    });
-
-    const result = await mistralVibeProvider.fetch(context());
-
-    expect(result.errors[0]?.message).toBe(
-      "Mistral Vibe session expired; update the cookie Sign in again at chat.mistral.ai in Zen browser.",
-    );
-    expect(JSON.stringify(result)).not.toContain("ory_session_x=one");
+    expect(mocks.queryMistralAdminBudget).toHaveBeenCalledTimes(1);
+    expect(result.errors).toEqual([
+      { label: "Mistral API", message: "Mistral admin request failed (HTTP 500)" },
+    ]);
   });
 
   it("passes the configured cookie source to the resolver", async () => {

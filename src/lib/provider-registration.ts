@@ -322,7 +322,7 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
   },
   {
     id: "mistral-vibe",
-    label: "Mistral Vibe",
+    label: "Mistral",
     runtimeIds: ["mistral", "mistral-vibe", "mistralai"],
     synonyms: ["mistral", "mistralai"],
     shape: {
@@ -330,7 +330,8 @@ export const QUOTA_PROVIDER_REGISTRATION_SOURCE = [
       authentication: "state_only",
       quota: "remote_api",
       quickSetupAnchor: "mistral-vibe",
-      notes: "Reads the Vibe dashboard usage API with a filtered session cookie",
+      notes:
+        "Reads Mistral admin billing budgets (API and Vibe credits) with a filtered session cookie; falls back to the chat code usage API",
     },
   },
   {

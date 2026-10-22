@@ -199,7 +199,7 @@ These show only your own member API key's usage, not the whole organization's.
 
 | Provider     | Auth/setup                                                    | Data from  | Reports |
 | ------------ | ------------------------------------------------------------- | ---------- | ------- |
-| Mistral Vibe | [Zen browser session](docs/readme/providers.md#mistral-vibe) (or env override) | Remote API | Quota   |
+| Mistral      | [Zen browser session](docs/readme/providers.md#mistral-vibe) (or env override) | Remote API | Quota and budget |
 
 ### Custom providers
 

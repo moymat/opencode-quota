@@ -55,3 +55,77 @@ export async function fetchWithTimeout<T>(
     clearTimeout(timeoutId);
   }
 }
+
+/**
+ * Read a response body with a hard byte cap and parse it as JSON.
+ *
+ * Checks the declared content length first, then enforces the cap while
+ * streaming so an oversized body is abandoned early.
+ */
+export async function readBoundedJsonResponse(
+  response: Response,
+  maxBytes: number,
+): Promise<unknown> {
+  if (!response.body) throw new Error("empty response");
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let byteLength = 0;
+
+  try {
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+      throw new Error("response too large");
+    }
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      byteLength += value.byteLength;
+      if (byteLength > maxBytes) {
+        throw new Error("response too large");
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    try {
+      await reader.cancel();
+    } catch {
+      // Preserve the original read or size-limit error.
+    }
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(byteLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return JSON.parse(new TextDecoder().decode(body));
+}
+
+/**
+ * Replace a full Cookie header and every individual cookie value inside a
+ * message with "[redacted]", so request errors can be surfaced without leaking
+ * the session.
+ */
+export function redactCookieSecrets(message: string, cookie: string): string {
+  let redacted = message;
+  for (const secret of [cookie, ...cookieSecretValues(cookie)]) {
+    if (secret) redacted = redacted.split(secret).join("[redacted]");
+  }
+  return redacted;
+}
+
+function cookieSecretValues(cookie: string): string[] {
+  return cookie.split(";").flatMap((part) => {
+    const value = part.slice(part.indexOf("=") + 1).trim();
+    if (!value) return [];
+    const unquoted = value.replace(/^"(.*)"$/u, "$1");
+    return unquoted === value ? [value] : [value, unquoted];
+  });
+}

@@ -1,5 +1,5 @@
 import { sanitizeSingleLineDisplaySnippet } from "./display-sanitize.js";
-import { fetchWithTimeout } from "./http.js";
+import { fetchWithTimeout, readBoundedJsonResponse, redactCookieSecrets } from "./http.js";
 
 const MISTRAL_VIBE_USAGE_URL = "https://chat.mistral.ai/api/code-trpc/apiKey.getUsage";
 const MISTRAL_VIBE_REQUEST_TIMEOUT_MS = 10_000;
@@ -64,64 +64,11 @@ export function parseMistralVibeUsageResponse(json: unknown): MistralVibeUsage {
   };
 }
 
-async function readBoundedJson(response: Response): Promise<unknown> {
-  if (!response.body) throw new Error("empty response");
-
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let byteLength = 0;
-
-  try {
-    const contentLength = Number(response.headers.get("content-length"));
-    if (Number.isFinite(contentLength) && contentLength > MISTRAL_VIBE_RESPONSE_MAX_BYTES) {
-      throw new Error("response too large");
-    }
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      byteLength += value.byteLength;
-      if (byteLength > MISTRAL_VIBE_RESPONSE_MAX_BYTES) {
-        throw new Error("response too large");
-      }
-      chunks.push(value);
-    }
-  } catch (error) {
-    try {
-      await reader.cancel();
-    } catch {
-      // Preserve the original read or size-limit error.
-    }
-    throw error;
-  } finally {
-    reader.releaseLock();
-  }
-
-  const body = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    body.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return JSON.parse(new TextDecoder().decode(body));
-}
-
-function getCookieValues(cookie: string): string[] {
-  return cookie.split(";").flatMap((part) => {
-    const value = part.slice(part.indexOf("=") + 1).trim();
-    if (!value) return [];
-    const unquoted = value.replace(/^"(.*)"$/u, "$1");
-    return unquoted === value ? [value] : [value, unquoted];
-  });
-}
-
 function sanitizeRequestError(error: unknown, cookie: string): string {
-  let message = error instanceof Error ? error.message : String(error);
-  for (const secret of [cookie, ...getCookieValues(cookie)]) {
-    message = message.split(secret).join("[redacted]");
-  }
-  return sanitizeSingleLineDisplaySnippet(message, 120) || "request failed";
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    sanitizeSingleLineDisplaySnippet(redactCookieSecrets(message, cookie), 120) || "request failed"
+  );
 }
 
 export async function queryMistralVibeUsage(
@@ -162,7 +109,7 @@ export async function queryMistralVibeUsage(
 
         let json: unknown;
         try {
-          json = await readBoundedJson(response);
+          json = await readBoundedJsonResponse(response, MISTRAL_VIBE_RESPONSE_MAX_BYTES);
         } catch (error) {
           if (timeoutSignal.aborted) throw error;
           return {

@@ -181,7 +181,8 @@ describe("provider-metadata", () => {
         authentication: "state_only",
         quota: "remote_api",
         quickSetupAnchor: "mistral-vibe",
-        notes: "Reads the Vibe dashboard usage API with a filtered session cookie",
+        notes:
+          "Reads Mistral admin billing budgets (API and Vibe credits) with a filtered session cookie; falls back to the chat code usage API",
       },
       {
         id: "opencode-go",
