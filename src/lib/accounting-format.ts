@@ -191,7 +191,13 @@ export function formatAccountingBasisSummary(
     return `Remaining: ${formatAccountingQuantity(basis.remaining.quantity)}`;
   }
   if (mode === "used" && basis.used) {
-    return `Used: ${formatAccountingQuantity(basis.used.quantity)}`;
+    // Keep the limit next to the used amount so the summary line shows the
+    // full pair; detailed mode lists used, limit, and remaining separately.
+    return basis.limit
+      ? `Used: ${formatAccountingQuantity(basis.used.quantity)} / Limit: ${formatAccountingQuantity(
+          basis.limit.quantity,
+        )}`
+      : `Used: ${formatAccountingQuantity(basis.used.quantity)}`;
   }
   if (basis.used && basis.limit) {
     return `Used: ${formatAccountingQuantity(basis.used.quantity)} / Limit: ${formatAccountingQuantity(

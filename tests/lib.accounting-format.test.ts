@@ -110,7 +110,8 @@ describe("accounting-format", () => {
       remaining: { quantity: usd("94.25"), authority: "locally_derived" as const },
     };
     expect(formatAccountingBasisSummary(basis, "remaining")).toBe("Remaining: USD 94.25");
-    expect(formatAccountingBasisSummary(basis, "used")).toBe("Used: USD 5.75");
+    expect(formatAccountingBasisSummary(basis, "used")).toBe("Used: USD 5.75 / Limit: USD 100.00");
+    expect(formatAccountingBasisSummary({ used: basis.used }, "used")).toBe("Used: USD 5.75");
     expect(formatAccountingBasisDetails(basis)).toEqual([
       "Used: USD 5.75",
       "Limit: USD 100.00",
@@ -245,7 +246,7 @@ describe("accounting-format", () => {
         booleanWording: "semantic",
         basis: { kind: "summary", mode: "used" },
       }).basis,
-    ).toEqual({ kind: "summary", text: "Used: USD 75.00" });
+    ).toEqual({ kind: "summary", text: "Used: USD 75.00 / Limit: USD 100.00" });
     expect(
       interpretAccountingRow(entry, {
         booleanWording: "semantic",
