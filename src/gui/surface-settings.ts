@@ -28,6 +28,7 @@ export const SURFACE_DEFAULTS: SurfaceSettings = {
     show: true,
     sessionTokens: true,
     runsOut: true,
+    amounts: false,
     hidden: [],
     providerOrder: [],
     rowOrder: {},

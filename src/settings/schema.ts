@@ -62,6 +62,8 @@ export const SETTINGS_SCHEMA = {
   "sidebar.show": bool(true),
   "sidebar.sessionTokens": bool(true),
   "sidebar.runsOut": bool(true),
+  /** A "Used: 2.55/25.50 EUR" line under each row that reports amounts. */
+  "sidebar.amounts": bool(false),
   "sidebar.hidden": { kind: "strings", default: [] },
   "sidebar.providerOrder": { kind: "strings", default: [] },
   "sidebar.rowOrder": { kind: "rowOrder", default: {} },

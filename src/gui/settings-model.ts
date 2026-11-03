@@ -53,7 +53,11 @@ const colorKeys = (roles: readonly string[]) => roles.map((role) => `colors.${ro
 /** Every section, in page order. */
 export const SECTIONS: readonly Section[] = [
   { id: "places", keys: ["sidebar.show", "collapsed.show", "statusLine.show", "toast.show"] },
-  { id: "sidebar", keys: ["sidebar.sessionTokens", "sidebar.runsOut"], editor: "sidebar" },
+  {
+    id: "sidebar",
+    keys: ["sidebar.sessionTokens", "sidebar.runsOut", "sidebar.amounts"],
+    editor: "sidebar",
+  },
   { id: "collapsed", keys: ["collapsed.runsOut"], editor: "collapsed" },
   {
     id: "statusLine",

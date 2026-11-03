@@ -203,6 +203,9 @@ export const en = {
   "setting.sidebar.runsOut": "Runs out in …",
   "setting.sidebar.runsOut.description":
     "Under a row, when that limit, used at your pace so far, runs out before its reset.",
+  "setting.sidebar.amounts": "Amounts",
+  "setting.sidebar.amounts.description":
+    "Under a row, its used and limit amounts (for example 2.55/25.50 EUR).",
   "setting.collapsed.runsOut": "Runs out in …",
   "setting.collapsed.runsOut.description":
     "Under the provider, when its limit runs out before the reset at your pace.",

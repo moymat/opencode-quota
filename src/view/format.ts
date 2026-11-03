@@ -215,6 +215,35 @@ export function amountText(amount: Amount): string {
   return `${number} ${integer === "1" && !fraction ? unit.unit : `${unit.unit}s`}`;
 }
 
+/**
+ * A row's used and limit as one pair: "2.55/25.50 EUR", "$2.55/$25.50", "10/20 requests".
+ * The currency code is written once, after the pair. A row with only a remaining amount says
+ * "12.40 EUR left". Undefined when the row reports no amounts.
+ */
+export function usedLimitText(row: QuotaRow): string | undefined {
+  const { used, limit, remaining } = row;
+  if (used && limit && amountUnitKey(used.unit) === amountUnitKey(limit.unit)) {
+    const unit = used.unit;
+    if (unit.kind !== "currency") return `${amountText(used)}/${amountText(limit)}`;
+    const suffix = ` ${unit.code}`;
+    if (unit.code === "USD") return `${amountText(used)}/${amountText(limit)}`;
+    return `${amountText(used).replace(suffix, "")}/${amountText(limit).replace(suffix, "")}${suffix}`;
+  }
+  if (remaining) return `${amountText(remaining)} left`;
+  return undefined;
+}
+
+function amountUnitKey(unit: Amount["unit"]): string {
+  switch (unit.kind) {
+    case "currency":
+      return `currency:${unit.code}`;
+    case "count":
+      return `count:${unit.unit}`;
+    case "custom":
+      return `custom:${unit.symbol}`;
+  }
+}
+
 /** The value of a row without a percent: its text, amount, used/limit, or yes/no. */
 export function rowValueText(row: QuotaRow): string {
   if (row.text !== undefined) return row.text;

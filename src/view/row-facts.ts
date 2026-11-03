@@ -16,6 +16,7 @@ import {
   paceLevel,
   percentText,
   rowValueText,
+  usedLimitText,
 } from "./format.js";
 import type { Group, VisibleRow } from "./select.js";
 
@@ -68,6 +69,8 @@ export type RowFacts = {
   evenLeft?: number;
   /** The pace words the place shows; `fast` when the row is used faster than it refills. */
   pace?: { words: string; fast: boolean };
+  /** Its used and limit ("2.55/25.50 EUR"), for the places that show the amounts. */
+  amounts?: string;
 };
 
 function nameOf(item: VisibleRow, group: Pick<Group, "rows">, place: Place): string {
@@ -134,8 +137,16 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
   const { words, nowMs } = place;
   const name = nameOf(item, group, place);
   const percent = row.percentRemaining;
+  const amounts = usedLimitText(row);
   if (percent === undefined) {
-    return { id: row.id, name, value: rowValueText(row), reset: "", shortReset: "" };
+    return {
+      id: row.id,
+      name,
+      value: rowValueText(row),
+      reset: "",
+      shortReset: "",
+      ...(amounts ? { amounts } : {}),
+    };
   }
   const withWord =
     place.percent === "words" || (place.percent === "usedWord" && words.percent === "used");
@@ -161,6 +172,7 @@ export function rowFacts(item: VisibleRow, group: Pick<Group, "rows">, place: Pl
     value: percentText(words, percent, withWord),
     reset,
     shortReset: resetIn("short"),
+    ...(amounts ? { amounts } : {}),
     ...(place.evenUse && pace ? { evenLeft: pace.evenLeft } : {}),
     ...(pace && showsPace(pace, place.pace)
       ? {

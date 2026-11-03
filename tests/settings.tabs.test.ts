@@ -29,6 +29,7 @@ const EXPECTED = {
     show: true,
     sessionTokens: true,
     runsOut: true,
+    amounts: false,
     hidden: [],
     providerOrder: [],
     rowOrder: {},

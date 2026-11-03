@@ -396,6 +396,53 @@ describe("view text", () => {
     });
   });
 
+  it("shows a row's used and limit under its bar when the sidebar asks for amounts", () => {
+    const MISTRAL = provider("mistral-vibe", "Mistral", [
+      row("mistral-vibe.monthly", {
+        label: "Monthly",
+        window: "month",
+        percentRemaining: 94,
+        used: { decimal: "130.05", unit: { kind: "currency", code: "EUR" } },
+        limit: { decimal: "280.5", unit: { kind: "currency", code: "EUR" } },
+        resetsAt: at(27 * 24 * 60 * MINUTE),
+      }),
+    ]);
+    const lines = sidebarLines({
+      groups: groups("sidebar", [MISTRAL]),
+      ...drawn,
+      width: 40,
+      amounts: true,
+    });
+    expect(lines.map(lineText)).toEqual([
+      "Mistral",
+      " 30d ███████████████████░  94% 27.0d",
+      "     130.05/280.50 EUR",
+    ]);
+    // Off by default: the same row keeps its single line.
+    expect(
+      sidebarLines({ groups: groups("sidebar", [MISTRAL]), ...drawn, width: 40 }).map(lineText),
+    ).toEqual(["Mistral", " 30d ███████████████████░  94% 27.0d"]);
+  });
+
+  it("writes a dollar pair with one sign per amount", () => {
+    const USD = provider("xiaomi", "Xiaomi MiMo", [
+      row("xiaomi.monthly_tokens", {
+        label: "Monthly",
+        window: "month",
+        percentRemaining: 50,
+        used: { decimal: "2.55", unit: { kind: "currency", code: "USD" } },
+        limit: { decimal: "25.5", unit: { kind: "currency", code: "USD" } },
+      }),
+    ]);
+    const lines = sidebarLines({
+      groups: groups("sidebar", [USD]),
+      ...drawn,
+      width: 40,
+      amounts: true,
+    });
+    expect(lines.map(lineText)).toContain("     $2.55/$25.50");
+  });
+
   it("shows cached input in parentheses when the session has cache reads", () => {
     const lines = sidebarLines({
       groups: groups("sidebar"),

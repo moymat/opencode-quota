@@ -229,6 +229,8 @@ type SidebarInput = {
   sessionTokens?: SessionTokens;
   /** A "runs out in 2h" line under each row that runs out before its reset. */
   runsOut?: boolean;
+  /** A "2.55/25.50 EUR" line under each row that reports amounts. */
+  amounts?: boolean;
 };
 
 /** §4.1: the expanded panel's title, with the percent's word its rows leave out: "▼ Quota left". */
@@ -364,6 +366,10 @@ export function sidebarLines(input: SidebarInput): Line[] {
     lines.push(groupLine(group, nowMs, width, true));
     for (const row of rows) {
       lines.push(rowLine(row));
+      if (input.amounts && row.amounts) {
+        const text = `${" ".repeat(barColumn)}${row.amounts}`;
+        lines.push({ id: row.id, segments: clip([{ text, role: "value" }], width) });
+      }
       if (!row.pace) continue;
       const text = `${" ".repeat(barColumn)}${row.pace.words}`;
       lines.push({ id: row.id, segments: clip([{ text, role: "warning" }], width) });
@@ -957,7 +963,15 @@ export function sidebarPanel(
   if (!snapshot) return { title, lines: [] };
   const sessionTokens = settings.sidebar.sessionTokens ? snapshot.sessionTokens : undefined;
   const input = surfaceInput("sidebar", snapshot, settings, nowMs);
-  return { title, lines: sidebarLines({ ...input, width, sessionTokens }) };
+  return {
+    title,
+    lines: sidebarLines({
+      ...input,
+      width,
+      sessionTokens,
+      amounts: settings.sidebar.amounts,
+    }),
+  };
 }
 
 /** §4.3: what the status line lays out (`statusLayout`, `bigStatusLine`). */

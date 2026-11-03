@@ -55,6 +55,7 @@ Each section has `show: true`, `runsOut` (`true` for `sidebar` and `toast`, `fal
 | Setting | Default | Values |
 | --- | --- | --- |
 | `sidebar.sessionTokens`, `toast.sessionTokens` | `true` | Show the session tokens line. |
+| `sidebar.amounts` | `false` | Under each row that reports them, show its used and limit amounts (for example `2.55/25.50 EUR`). |
 | `sidebar.names`, `toast.names` | `{}` | Row ids mapped to names. The collapsed sidebar, status line and Limits tab use the sidebar's. |
 | `collapsed.window`, `statusLine.window` | `{}` | Provider ids, and `"*"` for all providers, mapped to `lowest`, `rpm`, `hour`, `five_hour`, `session`, `day`, `week`, `month`, `year`, `mcp`, or `code_review`. A provider's own entry wins over `"*"`. Missing means lowest left. |
 | `statusLine.withSidebar` | `false` | The terminal's: also show the status line while a sidebar panel shows quota. |

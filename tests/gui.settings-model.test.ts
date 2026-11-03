@@ -152,6 +152,7 @@ describe("the Settings page's sections", () => {
     expect(resetKeys(section("sidebar"), RULES)).toEqual([
       "sidebar.sessionTokens",
       "sidebar.runsOut",
+      "sidebar.amounts",
       "sidebar.hidden",
       "sidebar.providerOrder",
       "sidebar.rowOrder",

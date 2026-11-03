@@ -184,6 +184,7 @@ describe("the Settings tabs' field table", () => {
       "sidebar.show",
       "sidebar.sessionTokens",
       "sidebar.runsOut",
+      "sidebar.amounts",
       "sidebar.hidden",
       "sidebar.providerOrder",
       "sidebar.rowOrder",
