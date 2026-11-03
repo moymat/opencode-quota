@@ -11,7 +11,7 @@ import type {
 import { cloneQuotaToastEntry } from "./entries.js";
 import { isFixedWindowProjectionEvidence } from "./quota-exhaustion-projection.js";
 
-export const QUOTA_PROVIDER_CACHE_VERSION = 3 as const;
+export const QUOTA_PROVIDER_CACHE_VERSION = 4 as const;
 
 export type PersistedQuotaProviderCacheEntry = {
   version: typeof QUOTA_PROVIDER_CACHE_VERSION;

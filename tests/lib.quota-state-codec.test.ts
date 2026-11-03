@@ -515,7 +515,7 @@ describe("quota-state codec", () => {
   it.each([
     ["V1", { version: 1 }],
     ["V2", { version: 2 }],
-    ["future versions", { version: 4 }],
+    ["future versions", { version: 5 }],
     ["package identity", { packageVersion: "4.2.1" }],
     ["cache key identity", { key: "other" }],
     ["provider identity", { providerId: "other" }],
