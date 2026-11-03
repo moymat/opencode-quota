@@ -23,6 +23,8 @@ export type PricingSnapshotSource = "auto" | "bundled" | "runtime";
 export type PercentDisplayMode = "remaining" | "used";
 export type PercentLabelStyle = "full" | "bare";
 export type AccountingDetail = "summary" | "detailed";
+/** How the two Mistral budgets (API and Vibe) are rendered. */
+export type MistralMode = "splited" | "combined";
 export type SessionTokenScope = "current" | "tree";
 export type OpenCodeGoWindowKey = "rolling" | "weekly" | "monthly";
 export type QuotaResetWindow = "fiveHour" | "hourly" | "daily" | "weekly" | "monthly" | "yearly";
@@ -179,6 +181,12 @@ export interface QuotaToastConfig {
    * `zen-browser` (the browser database only).
    */
   mistralVibeCookieSource: MistralVibeCookieSource;
+  /**
+   * How the two Mistral budgets are rendered:
+   * - `splited` (default): one row for the API budget and one for the Vibe budget.
+   * - `combined`: one row with a single bar and both used/limit pairs.
+   */
+  mode: MistralMode;
   cursorIncludedApiUsd?: number;
   cursorBillingCycleStartDay?: number;
   pricingSnapshot: PricingSnapshotConfig;
@@ -267,6 +275,7 @@ export const DEFAULT_CONFIG: QuotaToastConfig = {
   opencodeGoWindows: ["rolling", "weekly", "monthly"],
   opencodeMonthlyLimit: undefined,
   mistralVibeCookieSource: "auto",
+  mode: "splited",
   pricingSnapshot: {
     source: "auto",
     autoRefresh: 7,

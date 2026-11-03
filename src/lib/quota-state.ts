@@ -52,6 +52,7 @@ export function buildQuotaProviderStateCacheKey(
   const cursorIncludedApiUsd = ctx.config.cursorIncludedApiUsd ?? "";
   const cursorBillingCycleStartDay = ctx.config.cursorBillingCycleStartDay ?? "";
   const opencodeGoWindows = ctx.config.opencodeGoWindows?.join(",") ?? "";
+  const mistralMode = ctx.config.mode ?? "splited";
   const onlyCurrentModel = ctx.config.onlyCurrentModel ? "yes" : "no";
   const currentModel = ctx.config.currentModel ?? "";
   const currentProviderID = ctx.config.currentProviderID ?? "";
@@ -76,7 +77,7 @@ export function buildQuotaProviderStateCacheKey(
       ])}`
     : "";
 
-  return `${providerId}${quotaProvidersIdentity}${runtimeEligibleIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}${resolvedAuthIdentity}`;
+  return `${providerId}${quotaProvidersIdentity}${runtimeEligibleIdentity}|anthropicBinaryPath=${anthropicBinaryPath}|cursorPlan=${cursorPlan}|cursorIncludedApiUsd=${cursorIncludedApiUsd}|cursorBillingCycleStartDay=${cursorBillingCycleStartDay}|opencodeGoWindows=${opencodeGoWindows}|mistralMode=${mistralMode}|onlyCurrentModel=${onlyCurrentModel}|currentModel=${currentModel}|currentProviderID=${currentProviderID}${resolvedAuthIdentity}`;
 }
 
 function getQuotaProviderCacheDir(): string {

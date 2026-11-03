@@ -263,6 +263,7 @@ Toasts appear only in the TUI, never in Web or Desktop.
 | `opencodeGoWindows`          | `["rolling", "weekly", "monthly"]` | Which OpenCode Go windows appear: Five-hour, Weekly, and Monthly. |
 | `opencodeMonthlyLimit`       | unset                              | Override the OpenCode Zen monthly budget in USD. |
 | `mistralVibeCookieSource`    | `"auto"`                           | Where the Mistral session cookie comes from (used for both the admin billing API and the chat code usage API): `"auto"` (env override first, then the Zen browser cookie database), `"env"` (`MISTRAL_VIBE_COOKIE` only), or `"zen-browser"` (the browser database only). |
+| `mode`                       | `"splited"`                        | Mistral budget layout: `"splited"` shows the API and Vibe budgets as two rows; `"combined"` merges them into one row with a single bar and both used/limit pairs. |
 | `cursorPlan`                 | `"none"`                           | Cursor included API budget: `none`, `pro`, `pro-plus`, or `ultra`. |
 | `cursorIncludedApiUsd`       | unset                              | Override Cursor's monthly included API budget in USD. |
 | `cursorBillingCycleStartDay` | unset                              | Billing day `1`–`28`. Unset uses the local calendar month. |

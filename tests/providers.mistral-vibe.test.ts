@@ -220,6 +220,81 @@ describe("Mistral Vibe provider", () => {
     visibleEntries(result.entries, "mistral-vibe");
   });
 
+  it("combines both budgets into one row when mode is combined", async () => {
+    configured();
+    adminBudget();
+    chatUsage();
+
+    const result = await mistralVibeProvider.fetch(context({ mode: "combined" }));
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0]).toMatchObject({
+      accounting: quotaAccounting,
+      name: "Mistral Monthly",
+      group: "Mistral",
+      resetTimeIso: "2026-11-01T00:00:00.000Z",
+      semantic: {
+        metric: { kind: "window", window: "month" },
+        prominence: "primary",
+      },
+      basis: {
+        used: {
+          quantity: { decimal: "130.05", unit: EUR },
+          authority: "locally_derived",
+        },
+        limit: {
+          quantity: { decimal: "280.5", unit: EUR },
+          authority: "locally_derived",
+        },
+        remaining: {
+          quantity: { decimal: "150.45", unit: EUR },
+          authority: "locally_derived",
+        },
+      },
+      summary: "Used: 2.55/25.50 | 127.50/255.00",
+      detailFacts: ["API: 2.55/25.50", "Vibe: 127.50/255.00"],
+      sortPriority: 0,
+    });
+    expect(result.entries[0]?.percentRemaining).toBeCloseTo(53.6363636364, 6);
+    visibleEntries(result.entries, "mistral-vibe");
+  });
+
+  it("keeps split rows when combined mode has no Vibe budget", async () => {
+    configured();
+    adminBudget({ vibe: null });
+    chatUsage();
+
+    const result = await mistralVibeProvider.fetch(context({ mode: "combined" }));
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries[0]).toMatchObject({ group: "Mistral API" });
+    expect(result.entries[1]).toMatchObject({ group: "Mistral Vibe" });
+    expect(result.entries[1]).not.toHaveProperty("basis");
+    visibleEntries(result.entries, "mistral-vibe");
+  });
+
+  it("keeps split rows when the two budgets use different currencies", async () => {
+    configured();
+    adminBudget({
+      vibe: {
+        usagePercentage: 50,
+        budget: 255,
+        currency: "USD",
+        resetAtIso: "2026-11-01T00:00:00.000Z",
+      },
+    });
+    chatUsage();
+
+    const result = await mistralVibeProvider.fetch(context({ mode: "combined" }));
+
+    expectAttemptedWithNoErrors(result);
+    expect(result.entries).toHaveLength(2);
+    expect(result.entries.map((entry) => entry.group)).toEqual(["Mistral API", "Mistral Vibe"]);
+    visibleEntries(result.entries, "mistral-vibe");
+  });
+
   it("invites a sign-in for the API line when the admin endpoint rejects the session", async () => {
     configured("zen-browser:/home/u/.config/zen/prof");
     mocks.queryMistralAdminBudget.mockResolvedValueOnce({

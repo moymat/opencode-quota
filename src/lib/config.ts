@@ -22,6 +22,7 @@ import { isQuotaFormatStyle, resolveQuotaFormatStyle } from "./quota-format-styl
 import { cloneQuotaProviders, validateQuotaProviders } from "./quota-providers.js";
 import type {
   CursorQuotaPlan,
+  MistralMode,
   PercentDisplayMode,
   PercentLabelStyle,
   PricingSnapshotSource,
@@ -63,6 +64,7 @@ export const QUOTA_TOAST_SETTING_SOURCE_KEYS = [
   "opencodeGoWindows",
   "opencodeMonthlyLimit",
   "mistralVibeCookieSource",
+  "mode",
   "pricingSnapshot.source",
   "pricingSnapshot.autoRefresh",
   "showOnIdle",
@@ -179,6 +181,7 @@ type ValidatedQuotaToastPatch = {
   opencodeGoWindows?: Array<"rolling" | "weekly" | "monthly">;
   opencodeMonthlyLimit?: number;
   mistralVibeCookieSource?: MistralVibeCookieSource;
+  mode?: MistralMode;
   pricingSnapshot?: PricingSnapshotPatch;
   showOnIdle?: boolean;
   showOnQuestion?: boolean;
@@ -288,6 +291,10 @@ function isValidOpenCodeGoWindows(
   if (!Array.isArray(value)) return false;
   if (value.length === 0) return false;
   return value.every(isValidOpenCodeGoWindow);
+}
+
+function isValidMistralMode(value: unknown): value is MistralMode {
+  return value === "splited" || value === "combined";
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
@@ -791,6 +798,10 @@ function extractValidatedQuotaToastPatch(
     patch.mistralVibeCookieSource = quotaToastConfig.mistralVibeCookieSource;
   }
 
+  if (hasOwnKey(quotaToastConfig, "mode") && isValidMistralMode(quotaToastConfig.mode)) {
+    patch.mode = quotaToastConfig.mode;
+  }
+
   if (hasOwnKey(quotaToastConfig, "opencodeZenDisplay")) {
     reportIssue?.(
       "opencodeZenDisplay",
@@ -1054,6 +1065,11 @@ function applyValidatedQuotaToastPatch(
   if (hasOwnKey(patch, "mistralVibeCookieSource")) {
     config.mistralVibeCookieSource = patch.mistralVibeCookieSource!;
     applySettingSource(settingSources, "mistralVibeCookieSource", sourcePath);
+  }
+
+  if (hasOwnKey(patch, "mode")) {
+    config.mode = patch.mode!;
+    applySettingSource(settingSources, "mode", sourcePath);
   }
 
   if (patch.pricingSnapshot) {

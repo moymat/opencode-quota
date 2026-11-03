@@ -37,6 +37,7 @@ import {
 
 const MISTRAL_API_LABEL = "Mistral API";
 const MISTRAL_VIBE_LABEL = "Mistral Vibe";
+const MISTRAL_LABEL = "Mistral";
 const MISTRAL_VIBE_RUNTIME_IDS = new Set(getQuotaProviderRuntimeIds("mistral-vibe"));
 
 const QUOTA_ACCOUNTING: AccountingMetadata = {
@@ -59,6 +60,11 @@ function budgetQuantity(line: MistralBudgetLine, amount: number): AccountingQuan
 
 function usedAmount(line: MistralBudgetLine): number {
   return (line.budget * line.usagePercentage) / 100;
+}
+
+/** Format a budget amount without the currency code, e.g. `10.02`. */
+function formatBudgetAmount(line: MistralBudgetLine, amount: number): string {
+  return formatAccountingQuantity(budgetQuantity(line, amount)).replace(`${line.currency} `, "");
 }
 
 /**
@@ -100,6 +106,61 @@ function budgetLineEntry(params: {
         authority: "locally_derived",
       },
     },
+    sortPriority: 0,
+  };
+}
+
+/**
+ * Both Mistral budgets as one row: a single bar for the total consumption and
+ * a summary line that keeps each budget's used/limit pair visible.
+ */
+function combinedBudgetEntry(params: {
+  api: MistralBudgetLine;
+  vibe: MistralBudgetLine;
+  resetFallbackIso: string | null;
+}): QuotaToastEntry {
+  const { api, vibe } = params;
+  const apiUsed = usedAmount(api);
+  const vibeUsed = usedAmount(vibe);
+  const used = apiUsed + vibeUsed;
+  const budget = api.budget + vibe.budget;
+  const remaining = Math.max(0, budget - used);
+  const usagePercentage = budget > 0 ? (used / budget) * 100 : 0;
+  const resetIso = api.resetAtIso ?? vibe.resetAtIso ?? params.resetFallbackIso;
+  const summary = `Used: ${formatBudgetAmount(api, apiUsed)}/${formatBudgetAmount(
+    api,
+    api.budget,
+  )} | ${formatBudgetAmount(vibe, vibeUsed)}/${formatBudgetAmount(vibe, vibe.budget)}`;
+
+  return {
+    accounting: QUOTA_ACCOUNTING,
+    name: `${MISTRAL_LABEL} Monthly`,
+    group: MISTRAL_LABEL,
+    percentRemaining: 100 - usagePercentage,
+    ...(resetIso ? { resetTimeIso: resetIso } : {}),
+    semantic: {
+      metric: { kind: "window", window: "month" },
+      prominence: "primary",
+    },
+    basis: {
+      used: {
+        quantity: budgetQuantity(api, used),
+        authority: "locally_derived",
+      },
+      limit: {
+        quantity: budgetQuantity(api, budget),
+        authority: "locally_derived",
+      },
+      remaining: {
+        quantity: budgetQuantity(api, remaining),
+        authority: "locally_derived",
+      },
+    },
+    summary,
+    detailFacts: [
+      `API: ${formatBudgetAmount(api, apiUsed)}/${formatBudgetAmount(api, api.budget)}`,
+      `Vibe: ${formatBudgetAmount(vibe, vibeUsed)}/${formatBudgetAmount(vibe, vibe.budget)}`,
+    ],
     sortPriority: 0,
   };
 }
@@ -236,53 +297,80 @@ export const mistralVibeProvider: QuotaProvider = {
       chat_source: chatResult.success ? "ok" : "failed",
     };
 
-    // Mistral API credits are only reported by the admin billing endpoint. A
-    // plan without API credits reports no api_budget: no line, no error.
-    if (admin?.api) {
-      entries.push(
-        budgetLineEntry({
-          label: MISTRAL_API_LABEL,
-          line: admin.api,
-          resetFallbackIso: admin.rootResetAtIso ?? chat?.resetAtIso ?? null,
-        }),
-      );
-      detailValues.api_usage_percentage = admin.api.usagePercentage.toFixed(6);
-      detailValues.api_reset_at =
-        admin.api.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
-    } else if (!adminResult.success) {
-      errors.push({
-        label: MISTRAL_API_LABEL,
-        message: sessionErrorMessage({
-          error: adminResult.error,
-          sessionExpired: isMistralAdminSessionExpiredError(adminResult),
-          source: config.source,
-          signInHost: "admin.mistral.ai",
-        }),
-      });
-    }
+    const combined =
+      ctx.config?.mode === "combined" &&
+      admin?.api !== null &&
+      admin?.api !== undefined &&
+      admin?.vibe !== null &&
+      admin?.vibe !== undefined &&
+      admin.api.currency === admin.vibe.currency;
 
-    // Mistral Vibe credits: the admin billing budget is preferred (it carries
-    // the euro amounts); the chat code usage API backs the line up otherwise.
     let vibeRendered = false;
-    if (admin?.vibe) {
+
+    if (combined && admin?.api && admin?.vibe) {
       entries.push(
-        budgetLineEntry({
-          label: MISTRAL_VIBE_LABEL,
-          line: admin.vibe,
+        combinedBudgetEntry({
+          api: admin.api,
+          vibe: admin.vibe,
           resetFallbackIso: admin.rootResetAtIso ?? chat?.resetAtIso ?? null,
         }),
       );
       vibeRendered = true;
+      detailValues.api_usage_percentage = admin.api.usagePercentage.toFixed(6);
+      detailValues.api_reset_at =
+        admin.api.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
       detailValues.vibe_source = "admin";
       detailValues.vibe_usage_percentage = admin.vibe.usagePercentage.toFixed(6);
       detailValues.vibe_reset_at =
         admin.vibe.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
-    } else if (chat) {
-      entries.push(chatUsageEntry(chat, admin?.rootResetAtIso ?? null));
-      vibeRendered = true;
-      detailValues.vibe_source = "chat-api";
-      detailValues.vibe_usage_percentage = chat.usagePercentage.toFixed(6);
-      detailValues.vibe_reset_at = chat.resetAtIso ?? admin?.rootResetAtIso ?? undefined;
+    } else {
+      // Mistral API credits are only reported by the admin billing endpoint. A
+      // plan without API credits reports no api_budget: no line, no error.
+      if (admin?.api) {
+        entries.push(
+          budgetLineEntry({
+            label: MISTRAL_API_LABEL,
+            line: admin.api,
+            resetFallbackIso: admin.rootResetAtIso ?? chat?.resetAtIso ?? null,
+          }),
+        );
+        detailValues.api_usage_percentage = admin.api.usagePercentage.toFixed(6);
+        detailValues.api_reset_at =
+          admin.api.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
+      } else if (!adminResult.success) {
+        errors.push({
+          label: MISTRAL_API_LABEL,
+          message: sessionErrorMessage({
+            error: adminResult.error,
+            sessionExpired: isMistralAdminSessionExpiredError(adminResult),
+            source: config.source,
+            signInHost: "admin.mistral.ai",
+          }),
+        });
+      }
+
+      // Mistral Vibe credits: the admin billing budget is preferred (it carries
+      // the euro amounts); the chat code usage API backs the line up otherwise.
+      if (admin?.vibe) {
+        entries.push(
+          budgetLineEntry({
+            label: MISTRAL_VIBE_LABEL,
+            line: admin.vibe,
+            resetFallbackIso: admin.rootResetAtIso ?? chat?.resetAtIso ?? null,
+          }),
+        );
+        vibeRendered = true;
+        detailValues.vibe_source = "admin";
+        detailValues.vibe_usage_percentage = admin.vibe.usagePercentage.toFixed(6);
+        detailValues.vibe_reset_at =
+          admin.vibe.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
+      } else if (chat) {
+        entries.push(chatUsageEntry(chat, admin?.rootResetAtIso ?? null));
+        vibeRendered = true;
+        detailValues.vibe_source = "chat-api";
+        detailValues.vibe_usage_percentage = chat.usagePercentage.toFixed(6);
+        detailValues.vibe_reset_at = chat.resetAtIso ?? admin?.rootResetAtIso ?? undefined;
+      }
     }
 
     // The PAYG state stays a /quota_status diagnostic, not a panel row.

@@ -357,12 +357,34 @@ export function interpretAccountingRow(
     return { label, display };
   }
 
-  const basis =
-    options.basis.kind === "summary"
-      ? {
-          kind: "summary" as const,
-          text: formatAccountingBasisSummary(entry.basis, options.basis.mode),
-        }
-      : { kind: "detailed" as const, facts: buildAccountingBasisFacts(entry.basis) };
-  return { label, display, basis };
+  if (options.basis.kind === "summary") {
+    return {
+      label,
+      display,
+      basis: {
+        kind: "summary" as const,
+        text:
+          options.basis.mode === "used" && entry.summary
+            ? entry.summary
+            : formatAccountingBasisSummary(entry.basis, options.basis.mode),
+      },
+    };
+  }
+
+  if (entry.detailFacts) {
+    return {
+      label,
+      display,
+      basis: {
+        kind: "detailed" as const,
+        facts: entry.detailFacts.map((text) => ({ role: "used" as const, text })),
+      },
+    };
+  }
+
+  return {
+    label,
+    display,
+    basis: { kind: "detailed" as const, facts: buildAccountingBasisFacts(entry.basis) },
+  };
 }

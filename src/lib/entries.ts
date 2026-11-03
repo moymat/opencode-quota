@@ -3,7 +3,7 @@ import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { QuotaTelemetryToken } from "./quota-telemetry.js";
 import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
-import type { CursorQuotaPlan, OpenCodeGoWindowKey } from "./types.js";
+import type { CursorQuotaPlan, MistralMode, OpenCodeGoWindowKey } from "./types.js";
 
 /**
  * Normalized quota output model.
@@ -155,6 +155,10 @@ export type QuotaPercentEntry = GroupedQuotaEntryMeta & {
   percentRemaining: number;
   /** Optional typed operands. Renderers never derive a percentage from these facts. */
   basis?: AccountingPercentageBasis;
+  /** Optional override for the summary line (used to show multiple budget pairs). */
+  summary?: string;
+  /** Optional detailed facts override (used to show multiple budget pairs). */
+  detailFacts?: readonly string[];
   resetTimeIso?: string;
   /** Internal provider evidence for fixed-window exhaustion projection. */
   fixedWindow?: FixedWindowProjectionEvidence;
@@ -240,6 +244,7 @@ export function cloneQuotaToastEntry(entry: QuotaToastEntry): QuotaToastEntry {
     ...(isPercentEntry(entry) && entry.basis
       ? { basis: cloneAccountingPercentageBasis(entry.basis) }
       : {}),
+    ...(isPercentEntry(entry) && entry.detailFacts ? { detailFacts: [...entry.detailFacts] } : {}),
     ...(isPercentEntry(entry) && entry.fixedWindow
       ? { fixedWindow: { ...entry.fixedWindow } }
       : {}),
@@ -379,6 +384,7 @@ export interface QuotaProviderContext {
     opencodeGoWindows?: OpenCodeGoWindowKey[];
     opencodeMonthlyLimit?: number;
     mistralVibeCookieSource?: MistralVibeCookieSource;
+    mode?: MistralMode;
     requestTimeoutMs?: number;
     /** Provider-result cache TTL used by aggregate remote definitions. */
     providerCacheTtlMs?: number;

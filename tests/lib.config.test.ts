@@ -570,6 +570,19 @@ describe("loadConfig", () => {
     expect(explicit.meta.networkSettingSources).toEqual({});
   });
 
+  it("defaults Mistral mode to splited and accepts combined", async () => {
+    const defaults = await loadSdkConfig({});
+    expect(defaults.config.mode).toBe("splited");
+
+    const combined = await loadSdkConfig({ mode: "combined" });
+    expect(combined.config.mode).toBe("combined");
+    expect(combined.meta.settingSources).toEqual({ mode: "client.config.get" });
+
+    const invalid = await loadSdkConfig({ mode: "merged" });
+    expect(invalid.config.mode).toBe("splited");
+    expect(invalid.meta.settingSources).not.toHaveProperty("mode");
+  });
+
   it("keeps the workspace config root when OPENCODE_CONFIG_DIR is set, like OpenCode 2", async () => {
     // OpenCode 2 uses OPENCODE_CONFIG_DIR as the global config dir (resolved by
     // opencode-runtime-paths, mocked here); project config still comes from the workspace.

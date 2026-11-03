@@ -547,6 +547,8 @@ Reads the monthly credit budgets of your Mistral subscription from the admin bil
 - **Mistral API** — the La Plateforme API credits included in the plan. A monthly quota bar with the used percentage, and below it the used and limit amounts in the plan currency (for example `Used: EUR 0.41 / Limit: EUR 25.50`).
 - **Mistral Vibe** — the Vibe (Le Chat) credits, same shape (for example `Used: EUR 35.05 / Limit: EUR 255.00`).
 
+By default the two budgets are rendered as two rows. Set `"mode": "combined"` in `quota-toast.jsonc` to merge them into one `[Mistral]` row: the bar shows the combined consumption (total used / total limit), and the summary line keeps both pairs, for example `Used: 1.23/25.50 | 15.29/255.00`. Detailed output shows `API: 1.23/25.50 | Vibe: 15.29/255.00`. The two budgets must use the same currency; otherwise the rows stay split.
+
 The same `ory_session_*` cookie authenticates both `chat.mistral.ai` and `admin.mistral.ai` (the session lives on the bare `mistral.ai` domain), so one sign-in covers both lines. By default the cookie is read straight from the **Zen browser** profile's `cookies.sqlite`, so the rows follow the browser's live session: when Ory refreshes or rotates the session, the next fetch picks up the new cookie automatically, and a revoked session only needs a fresh sign-in at `chat.mistral.ai` in Zen browser.
 
 - Sign in at `chat.mistral.ai` in Zen browser. Firefox-based builds store the profile under `~/.config/zen` (honoring `XDG_CONFIG_HOME`); `~/.zen` and the Flatpak path are also searched. `/quota_status` shows the resolved profile and the number of `ory_session_*` cookies found under `mistral_vibe:`.
