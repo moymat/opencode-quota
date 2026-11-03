@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vite-plus/test";
 
 const fsMocks = vi.hoisted(() => ({
   rm: vi.fn(),
@@ -9,7 +9,7 @@ vi.mock("node:fs/promises", async (importOriginal) => ({
   rm: fsMocks.rm,
 }));
 
-import { safeRm } from "../scripts/lib/upstream-plugin-fs.mjs";
+import { safeRm } from "../.github/scripts/lib/upstream-plugin-fs.mjs";
 
 describe("upstream-plugin-fs", () => {
   it("requests native retries for transient Windows cleanup failures", async () => {

@@ -5,20 +5,22 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import { isolatedGitEnv } from "./helpers/isolated-git-env.js";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const packageScript = fileURLToPath(
-  new URL("../scripts/verify-package-contents.mjs", import.meta.url),
+  new URL("../.github/scripts/verify-package-contents.mjs", import.meta.url),
 );
 const artifactScript = fileURLToPath(
-  new URL("../scripts/verify-release-artifact.mjs", import.meta.url),
+  new URL("../.github/scripts/verify-release-artifact.mjs", import.meta.url),
 );
-const historyScript = fileURLToPath(new URL("../scripts/verify-v4-history.mjs", import.meta.url));
+const historyScript = fileURLToPath(
+  new URL("../.github/scripts/verify-v4-history.mjs", import.meta.url),
+);
 const typescriptScript = fileURLToPath(
-  new URL("../scripts/verify-typescript-version.mjs", import.meta.url),
+  new URL("../.github/scripts/verify-typescript-version.mjs", import.meta.url),
 );
 const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")) as {
   main: string;
@@ -56,7 +58,8 @@ function requiredPackageFiles(): string[] {
   add(pkg.types);
   for (const value of Object.values(pkg.bin)) add(value);
   for (const target of Object.values(pkg.exports)) {
-    for (const value of Object.values(target)) add(value);
+    if (typeof target === "string") add(target);
+    else for (const value of Object.values(target)) add(value);
   }
   return [...paths];
 }
@@ -83,6 +86,12 @@ async function createHistoryRepo(root: string): Promise<string> {
     "public image fixture\n",
     "utf8",
   );
+  await mkdir(path.join(root, ".github/images"), { recursive: true });
+  await writeFile(
+    path.join(root, ".github/images/opencode-quota-logo-dark.svg"),
+    "public image fixture\n",
+    "utf8",
+  );
   await writeFile(
     path.join(root, ".gitignore"),
     [
@@ -103,7 +112,13 @@ async function createHistoryRepo(root: string): Promise<string> {
     ].join("\n"),
     "utf8",
   );
-  git(root, ["add", "README.md", ".gitignore", "images/opencode-quota-logo-dark.svg"]);
+  git(root, [
+    "add",
+    "README.md",
+    ".gitignore",
+    "images/opencode-quota-logo-dark.svg",
+    ".github/images/opencode-quota-logo-dark.svg",
+  ]);
   git(root, ["commit", "-qm", "base"]);
   return git(root, ["rev-parse", "HEAD"]);
 }
@@ -123,7 +138,7 @@ describe("v4 release gates", () => {
     const typescript = run(typescriptScript);
     expect(typescript.status).toBe(0);
     expect(typescript.stdout).toContain(
-      "TypeScript 7.0.2 and @opencode/plugin 2.0.16 lock entries verified",
+      "TypeScript 7.0.2 and @opencode/plugin 2.2.5 lock entries verified",
     );
 
     const historyRepo = path.join(tempDir, "clean-history");
@@ -197,6 +212,7 @@ describe("v4 release gates", () => {
       "prompt-exports/session.md",
       "opencode-quota/opencode.db",
       "images/private-smoke.png",
+      ".github/images/private-smoke.png",
       "local-live-tests/google-agy/account.json",
       "local-live-tests/openai/account.json",
       "local-live-tests/notes.txt",
@@ -263,7 +279,7 @@ describe("v4 release gates", () => {
       "prompt-exports/review.md",
       "opencode-quota/opencode.db",
       "tests/package-manifest.test.ts",
-      "scripts/verify-release-version.mjs",
+      ".github/scripts/verify-release-version.mjs",
       "images/opencode-quota-logo-dark.svg",
       "images/opencode-quota-logo-light.svg",
       "images/opencode-quota_opencode-quota-sidebar.webp",

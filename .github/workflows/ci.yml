@@ -19,13 +19,15 @@ jobs:
         with:
           node-version: 24.x
 
-      - name: Activate pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.0.0 --activate
-
+      # Installs Vite+ and the pnpm version in package.json `packageManager`, then
+      # `vp install --frozen-lockfile` with the pnpm store cached by lockfile hash.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          node-manager: false
+          cache: true
+          run-install: |
+            args: ["--frozen-lockfile"]
 
       - name: Run canonical verification
         run: pnpm verify
@@ -53,13 +55,15 @@ jobs:
         with:
           node-version: 24.x
 
-      - name: Activate pnpm
-        run: |
-          corepack enable
-          corepack prepare pnpm@11.0.0 --activate
-
+      # Installs Vite+ and the pnpm version in package.json `packageManager`, then
+      # `vp install --frozen-lockfile` with the pnpm store cached by lockfile hash.
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          node-manager: false
+          cache: true
+          run-install: |
+            args: ["--frozen-lockfile"]
 
       - name: Run canonical verification
         run: pnpm verify
@@ -87,4 +91,7 @@ jobs:
           path: package-artifacts
 
       - name: Smoke exact npm artifact on Node ${{ matrix.node-version }}
-        run: node scripts/smoke-packed-package.mjs package-artifacts
+        run: node .github/scripts/smoke-packed-package.mjs package-artifacts
+
+      - name: Install exact npm artifact globally with npm 12 on Node ${{ matrix.node-version }}
+        run: node .github/scripts/smoke-packed-global-install.mjs package-artifacts

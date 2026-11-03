@@ -1,259 +1,1033 @@
-import { describe, expect, it, vi } from "vitest";
+/** Alibaba Token Plan as one module: the shared fake `bl` answers its usage, seat and auth commands. */
 
-import type { QuotaToastEntry } from "../src/lib/entries.js";
-import { modelProviderMatchesRuntimeId } from "../src/lib/provider-model-matching.js";
-import { matchesQuotaProviderCurrentSelection } from "../src/lib/quota-render-data.js";
-import { alibabaCodingPlanProvider } from "../src/providers/alibaba-coding-plan.js";
-import { alibabaTokenPlanProvider } from "../src/providers/alibaba-token-plan.js";
-import { renderAccountingFourSurfaces } from "./helpers/accounting-four-surface.js";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import { paceOf } from "../src/core/pace.js";
+import { rowsFromProviderResult } from "../src/core/rows.js";
 import {
-  expectAttemptedWithErrorLabel,
-  expectAttemptedWithNoErrors,
-  expectNotAttempted,
-  visibleEntries,
-} from "./helpers/provider-assertions.js";
+  clearAlibabaIdentityCacheForTests,
+  ERROR_MESSAGES,
+  NO_QUOTA_DATA_HINT,
+  NO_WINDOW_DATA_HINT,
+} from "../src/lib/alibaba.js";
+import { alibabaTokenPlanProvider } from "../src/providers/alibaba.js";
+import {
+  AUTH_STATUS,
+  exits,
+  installCli,
+  launch,
+  PLATFORM,
+  paths,
+  replying,
+  seatPage,
+  SUPPORTED,
+  useAlibabaCliFixture,
+  WAITS,
+} from "./helpers/alibaba-cli-fixture.js";
+import { isLedgerRowKey } from "./helpers/provider-assertions.js";
+import { rowSummary } from "./helpers/provider-fetch.js";
 import { createProviderAvailabilityContext } from "./helpers/provider-test-harness.js";
 
-vi.mock("../src/lib/alibaba-token-plan.js", async () => {
-  const actual = await vi.importActual<typeof import("../src/lib/alibaba-token-plan.js")>(
-    "../src/lib/alibaba-token-plan.js",
+vi.mock("node:child_process", () =>
+  import("./helpers/alibaba-cli-fixture.js").then((fixture) => fixture.mockChildProcess()),
+);
+
+// The identity is mocked so the test reads the principal it was given, not a digest of the key.
+const identityMocks = vi.hoisted(() => ({
+  deriveIdentity: vi.fn(async (params: unknown) => `rai1_${JSON.stringify(params)}`),
+}));
+
+vi.mock("../src/lib/resolved-auth-identity.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/lib/resolved-auth-identity.js")>()),
+  deriveResolvedAuthIdentity: identityMocks.deriveIdentity,
+}));
+
+const RESET = "2024-05-01T20:53:20.000Z";
+
+useAlibabaCliFixture();
+
+beforeEach(() => {
+  // `bl auth status` is memoised per process, so each case must start from its own reply.
+  clearAlibabaIdentityCacheForTests();
+  identityMocks.deriveIdentity.mockClear();
+});
+
+/** The provider's fetch, with the ledger-row-key check every provider fetch shares. */
+async function fetchTokenPlan(requestTimeoutMs = 5_000) {
+  const fetched = rowsFromProviderResult(
+    "alibaba-token-plan",
+    await alibabaTokenPlanProvider.fetch({
+      workspaceRoot: paths.project,
+      locationDirectory: paths.project,
+      // The provider takes the user's timeout only when the settings say one is set.
+      config: { requestTimeoutMs, requestTimeoutMsConfigured: true },
+    } as never),
   );
-  return {
-    ...actual,
-    resolveAlibabaTokenPlanExecutable: vi.fn(actual.resolveAlibabaTokenPlanExecutable),
-    queryAlibabaTokenPlanQuota: vi.fn(actual.queryAlibabaTokenPlanQuota),
-  };
-});
+  for (const row of fetched.rows) {
+    expect(
+      isLedgerRowKey("alibaba-token-plan", row.id.slice("alibaba-token-plan".length + 1)),
+      row.id,
+    ).toBe(true);
+  }
+  return fetched;
+}
 
-vi.mock("../src/lib/alibaba-coding-plan-local-quota.js", async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import("../src/lib/alibaba-coding-plan-local-quota.js")>();
-  return {
-    ...actual,
-    readAlibabaCodingPlanQuotaState: vi.fn(actual.readAlibabaCodingPlanQuotaState),
-  };
-});
+function seatJson(name: string, equity?: Record<string, number>): Record<string, unknown> {
+  return { Status: "NORMAL", AccountName: name, ...(equity ? { EquityList: [equity] } : {}) };
+}
 
-const accounting = {
-  resultType: "quota" as const,
-  acquisitionMethod: "local_cli" as const,
-  ownership: "maintained" as const,
-  authority: "provider_reported" as const,
+const SEAT_RESET = new Date(1_792_742_400_000).toISOString();
+const SEAT_CYCLE_START = new Date(1_790_150_400_000).toISOString();
+const TEAM_LEAD_EQUITY = {
+  CycleTotalValue: 250_000,
+  CycleSurplusValue: 170_000,
+  CycleStartTime: Date.parse(SEAT_CYCLE_START),
+  CycleEndTime: Date.parse(SEAT_RESET),
+};
+const TEAM_LEAD = seatJson("team-lead", TEAM_LEAD_EQUITY);
+const TEAM_LEAD_ROW = [
+  "alibaba-token-plan.team.team_lead",
+  "team-lead",
+  "Credits",
+  "month",
+  "68 (80000 credit of 250000 credit)",
+  SEAT_RESET,
+];
+
+const IDENTITY_CONTEXT = {
+  workspaceRoot: "/home/user/project",
+  config: { requestTimeoutMs: 5_000 },
 };
 
+function identityPolicy() {
+  const policy = alibabaTokenPlanProvider.cachePolicy;
+  if (policy?.kind !== "resolved-auth") throw new Error("Expected a resolved-auth policy");
+  return policy;
+}
+
 describe("alibaba-token-plan provider", () => {
-  it("is available from explicit selection or recognized runtime presence without probing PATH", async () => {
-    const { resolveAlibabaTokenPlanExecutable } = await import("../src/lib/alibaba-token-plan.js");
-    const supported = process.platform === "darwin" || process.platform === "linux";
+  it("is available from explicit selection or recognized runtime presence, never from the PATH", async () => {
     const selected = createProviderAvailabilityContext({
       providerIds: ["alibaba-token-plan"],
     });
-    await expect(alibabaTokenPlanProvider.isAvailable(selected)).resolves.toBe(supported);
-    expect(resolveAlibabaTokenPlanExecutable).not.toHaveBeenCalled();
+    await expect(alibabaTokenPlanProvider.isAvailable(selected)).resolves.toBe(SUPPORTED);
 
     const codingPlanOnly = createProviderAvailabilityContext({
       providerIds: ["alibaba", "alibaba-coding-plan"],
     });
     await expect(alibabaTokenPlanProvider.isAvailable(codingPlanOnly)).resolves.toBe(false);
-    expect(resolveAlibabaTokenPlanExecutable).not.toHaveBeenCalled();
 
     const runtime = createProviderAvailabilityContext({
       configOverrides: { currentProviderID: "alibaba-token-plan" },
     });
-    await expect(alibabaTokenPlanProvider.isAvailable(runtime)).resolves.toBe(supported);
+    await expect(alibabaTokenPlanProvider.isAvailable(runtime)).resolves.toBe(SUPPORTED);
 
     const model = createProviderAvailabilityContext({
       configOverrides: { currentModel: "alibaba-token-plan/qwen3" },
     });
-    await expect(alibabaTokenPlanProvider.isAvailable(model)).resolves.toBe(supported);
+    await expect(alibabaTokenPlanProvider.isAvailable(model)).resolves.toBe(SUPPORTED);
   });
 
-  it("matches only its own runtime identity and never Coding Plan models", () => {
-    expect(
-      alibabaTokenPlanProvider.matchesCurrentModel("alibaba-token-plan/qwen3", {
-        currentProviderID: "alibaba-token-plan",
-      } as any),
-    ).toBe(true);
-    expect(
-      alibabaTokenPlanProvider.matchesCurrentModel("alibaba/qwen3-coder", {
-        currentProviderID: "alibaba",
-      } as any),
-    ).toBe(false);
-    expect(
-      alibabaTokenPlanProvider.matchesCurrentModel("alibaba-coding-plan/qwen3", {
-        currentProviderID: "alibaba-coding-plan",
-      } as any),
-    ).toBe(false);
-    expect(alibabaTokenPlanProvider.matchesCurrentModel("alibaba/qwen3-coder")).toBe(false);
-    expect(modelProviderMatchesRuntimeId("alibaba/qwen3", "alibaba-token-plan")).toBe(false);
-    expect(modelProviderMatchesRuntimeId("alibaba-token-plan/qwen3", "alibaba-coding-plan")).toBe(
-      false,
-    );
-    expect(modelProviderMatchesRuntimeId("alibaba-token-plan/qwen3", "alibaba-token-plan")).toBe(
-      true,
-    );
+  it.each([
+    ["alibaba-token-plan/qwen3", "alibaba-token-plan", true],
+    ["alibaba/qwen3-coder", "alibaba", false],
+    ["alibaba-coding-plan/qwen3", "alibaba-coding-plan", false],
+    ["alibaba-token-plan/qwen3", undefined, true],
+    ["alibaba/qwen3-coder", undefined, false],
+  ])("matchesCurrentModel(%s, provider %s) -> %s", (model, currentProviderID, expected) => {
+    const context = currentProviderID ? ({ currentProviderID } as never) : undefined;
+    expect(alibabaTokenPlanProvider.matchesCurrentModel?.(model, context)).toBe(expected);
   });
 
-  it("probes bl for the project folder quota is computed for", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: true,
-      weekly: { percentRemaining: 60 },
-    });
+  it.runIf(SUPPORTED)("never runs a bl from inside the project folder", async () => {
+    installCli({ usage: replying({ per1MonthPercentage: 0.4 }) }, join(paths.project, "bin"));
 
-    await alibabaTokenPlanProvider.fetch({
-      workspaceRoot: "/home/user/project",
-      config: { requestTimeoutMs: 5000 },
-    } as never);
+    const fetched = await fetchTokenPlan();
 
-    expect(queryAlibabaTokenPlanQuota).toHaveBeenLastCalledWith({
-      requestTimeoutMs: 5000,
-      runtime: { cwd: "/home/user/project" },
-    });
+    expect(fetched.rows).toEqual([]);
+    expect(fetched.debug).toContainEqual({ key: "failure_kind", value: "executable_not_found" });
   });
 
-  it("returns a fixed attempted setup failure when the CLI is absent", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: false,
-      error: {
-        kind: "executable_not_found",
-        message: "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
-      },
-    });
-    const out = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "Alibaba Personal Token Plan");
-    expect(out.errors[0]?.message).toBe(
-      "Alibaba Cloud CLI (bl) was not found on the trusted PATH.",
-    );
-  });
-
-  it("returns not-attempted on unsupported platforms", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: false,
-      error: {
-        kind: "unsupported_platform",
-        message: "Alibaba Personal Token Plan is not supported on this platform.",
-      },
-    });
-    const out = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
-    expectNotAttempted(out);
-  });
-
-  it("maps official windows without fabricating a sibling", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: true,
-      weekly: {
-        percentRemaining: 60,
-        resetTimeIso: "2024-05-01T20:53:20.000Z",
-      },
-    });
-    const out = await alibabaTokenPlanProvider.fetch({ config: { requestTimeoutMs: 5000 } } as any);
-    expectAttemptedWithNoErrors(out);
-    expect(visibleEntries(out.entries, "alibaba-token-plan")).toEqual([
+  it.runIf(SUPPORTED).each([
+    [
+      "the monthly window, with its reset",
+      { usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }) },
+      [["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET]],
+      undefined,
+      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
+    ],
+    [
+      "the monthly window without a reset time",
+      { usage: replying({ per1MonthPercentage: 0.5 }) },
+      [["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 50, null]],
+      undefined,
+      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "monthly" }],
+    ],
+    [
+      "a signed-in reply with no window, left blank rather than reported",
+      { usage: replying({}) },
+      [],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "(none)" },
+        { key: "window_hint", value: NO_QUOTA_DATA_HINT },
+      ],
+    ],
+    [
+      "the CLI's own flag says the reply carried no quota data",
+      { usage: replying({ hasQuotaData: false }) },
+      [],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "(none)" },
+        { key: "window_hint", value: NO_QUOTA_DATA_HINT },
+      ],
+    ],
+    [
+      "a window without a ratio has no row, and the hint says why",
+      { usage: replying({ per1MonthResetTime: Date.parse(RESET), hasQuotaData: false }) },
+      [],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "monthly" },
+        { key: "window_hint", value: NO_QUOTA_DATA_HINT },
+      ],
+    ],
+    [
+      "every window the CLI reports, one row each",
       {
-        name: "Alibaba Personal Token Plan Weekly",
-        group: "Alibaba Personal Token Plan",
-        label: "Weekly:",
-        percentRemaining: 60,
-        resetTimeIso: "2024-05-01T20:53:20.000Z",
+        usage: replying({
+          per5HourPercentage: 0.25,
+          per1WeekPercentage: 0.1,
+          per1MonthPercentage: 0.6,
+          per1MonthResetTime: Date.parse(RESET),
+          hasQuotaData: true,
+        }),
       },
-    ]);
-    expect(out.entries.some((entry) => entry.label === "5h:")).toBe(false);
-    expect(
-      matchesQuotaProviderCurrentSelection({
-        provider: alibabaTokenPlanProvider,
-        currentProviderID: "alibaba-token-plan",
-        currentModel: "alibaba-token-plan/qwen3",
-      }),
-    ).toBe(true);
-    expect(
-      matchesQuotaProviderCurrentSelection({
-        provider: alibabaCodingPlanProvider,
-        currentProviderID: "alibaba-token-plan",
-        currentModel: "alibaba-token-plan/qwen3",
-      }),
-    ).toBe(false);
-  });
-
-  it("keeps Coding Plan fetch successful while Token Plan fails", async () => {
-    const originalKey = process.env.ALIBABA_API_KEY;
-    process.env.ALIBABA_API_KEY = "coding-plan-non-regression-key";
-    try {
-      const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-      vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-        ok: false,
-        error: {
-          kind: "not_authenticated",
-          message:
-            "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
+      [
+        ["alibaba-token-plan.personal.five_hour", "personal", "5h", "five_hour", 75, null],
+        ["alibaba-token-plan.personal.weekly", "personal", "Weekly", "week", 90, null],
+        ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
+      ],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "five_hour,weekly,monthly" },
+      ],
+    ],
+    [
+      "a window with a reset time but no ratio has no row, and the hint names it",
+      {
+        usage: replying({
+          per5HourPercentage: 0.25,
+          per1MonthResetTime: Date.parse(RESET),
+          hasQuotaData: true,
+        }),
+      },
+      [["alibaba-token-plan.personal.five_hour", "personal", "5h", "five_hour", 75, null]],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "five_hour,monthly" },
+        { key: "window_hint", value: NO_WINDOW_DATA_HINT },
+        { key: "no_data_windows", value: "monthly" },
+      ],
+    ],
+    [
+      "each window without a ratio, named in the hint's list",
+      {
+        usage: replying({
+          per2DayPercentage: 0.5,
+          per2DayResetTime: Date.parse(RESET),
+          per3HourResetTime: Date.parse(RESET),
+          per1WeekResetTime: Date.parse(RESET),
+        }),
+      },
+      [["alibaba-token-plan.personal.2_day", "personal", "2d", null, 50, RESET]],
+      undefined,
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "2_day,3_hour,weekly" },
+        { key: "window_hint", value: NO_WINDOW_DATA_HINT },
+        { key: "no_data_windows", value: "3_hour,weekly" },
+      ],
+    ],
+    [
+      "a window the repo names no slot for takes the repo's own window",
+      { usage: replying({ per1DayPercentage: 0.5, hasQuotaData: true }) },
+      [["alibaba-token-plan.personal.day", "personal", "Daily", "day", 50, null]],
+      undefined,
+      [{ key: "cli_available", value: "true" }, PLATFORM, { key: "windows", value: "day" }],
+    ],
+    [
+      "a missing CLI, failing both commands",
+      undefined,
+      [],
+      { code: "local_tool" },
+      [
+        { key: "cli_available", value: "false" },
+        PLATFORM,
+        { key: "failure_kind", value: "executable_not_found" },
+        { key: "seat_failure_kind", value: "executable_not_found" },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.executable_not_found}`,
         },
-      });
-      const tokenOut = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
-      expectAttemptedWithErrorLabel(tokenOut, "Alibaba Personal Token Plan");
-
-      const { readAlibabaCodingPlanQuotaState } = await import(
-        "../src/lib/alibaba-coding-plan-local-quota.js"
-      );
-      vi.mocked(readAlibabaCodingPlanQuotaState).mockResolvedValue({
-        version: 1,
-        recent: [],
-        updatedAt: Date.now(),
-      });
-      const codingOut = await alibabaCodingPlanProvider.fetch({
-        config: { quotaProviders: [] },
-      } as any);
-      expectAttemptedWithNoErrors(codingOut);
-      expect(visibleEntries(codingOut.entries, "alibaba-coding-plan").length).toBeGreaterThan(0);
-      expect(JSON.stringify(codingOut)).not.toContain("Alibaba Personal Token Plan");
-      expect(JSON.stringify(codingOut)).not.toContain("bl auth login");
-    } finally {
-      if (originalKey === undefined) delete process.env.ALIBABA_API_KEY;
-      else process.env.ALIBABA_API_KEY = originalKey;
-    }
-  });
-
-  it("surfaces sanitized console-auth failure as an attempted error", async () => {
-    const { queryAlibabaTokenPlanQuota } = await import("../src/lib/alibaba-token-plan.js");
-    vi.mocked(queryAlibabaTokenPlanQuota).mockResolvedValue({
-      ok: false,
-      error: {
-        kind: "not_authenticated",
-        message:
-          "Alibaba Cloud console session is missing or expired. Run `bl auth login --console`.",
-      },
-    });
-    const out = await alibabaTokenPlanProvider.fetch({ config: {} } as any);
-    expectAttemptedWithErrorLabel(out, "Alibaba Personal Token Plan");
-    expect(out.errors[0]?.message).toContain("bl auth login --console");
-    expect(JSON.stringify(out)).not.toContain("stderr");
-  });
-});
-
-describe("alibaba-token-plan four-surface formatting", () => {
-  it("renders only returned windows across command, toast, sidebar, and compact", () => {
-    const entries: QuotaToastEntry[] = [
+        { key: "error_kind", value: "local_tool" },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (team): ${ERROR_MESSAGES.executable_not_found}`,
+        },
+        { key: "error_kind", value: "local_tool" },
+      ],
+    ],
+    [
+      "an expired console sign-in, leaving the seats alone",
+      { usage: exits(3) },
+      [],
+      { code: "login_expired" },
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "not_authenticated" },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.not_authenticated}`,
+        },
+        { key: "error_kind", value: "login_expired" },
+      ],
+    ],
+    [
+      "the CLI's own reason for a rejected call, with the exit code as the error kind",
       {
-        accounting,
-        name: "Alibaba Personal Token Plan Weekly",
-        group: "Alibaba Personal Token Plan",
-        label: "Weekly:",
-        percentRemaining: 60,
+        usage: {
+          kind: "fails",
+          code: 1,
+          body: { error: { code: 1, message: "COMMON-2001 - the reply was rejected" } },
+        },
       },
-    ];
-    const outputs = renderAccountingFourSurfaces({
-      data: { entries, errors: [] },
-      accountingDetail: "summary",
-      toastMaxWidth: 80,
-      toastNarrowAt: 44,
-      compactMaxWidth: 160,
-    });
-    for (const output of Object.values(outputs)) {
-      expect(output).toContain("Alibaba Personal Token Plan");
-      expect(output).toContain("60%");
-      expect(output).not.toContain("Alibaba Coding Plan");
-    }
+      [],
+      { code: "provider_error" },
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "nonzero_exit" },
+        {
+          key: "error",
+          value: "Alibaba Token Plan (personal): COMMON-2001 - the reply was rejected",
+        },
+        { key: "error_kind", value: "provider_error" },
+      ],
+    ],
+    [
+      "an expired sign-in whose words do not say so, decided by the exit code",
+      {
+        usage: {
+          kind: "fails",
+          code: 3,
+          body: { error: { code: 3, message: "the session token was refused" } },
+        },
+      },
+      [],
+      { code: "login_expired" },
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "not_authenticated" },
+        {
+          key: "error",
+          value: "Alibaba Token Plan (personal): the session token was refused",
+        },
+        { key: "error_kind", value: "login_expired" },
+      ],
+    ],
+    [
+      // The seat command waits too: with a 300 ms limit, a seat reply on a busy machine would
+      // otherwise arrive or not by chance.
+      "a timeout",
+      { usage: WAITS, seats: WAITS },
+      [],
+      { code: "timeout" },
+      [
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "timeout" },
+        { key: "seat_failure_kind", value: "timeout" },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.timeout}`,
+        },
+        { key: "error_kind", value: "timeout" },
+        {
+          key: "error",
+          value: `Alibaba Token Plan (team): ${ERROR_MESSAGES.timeout}`,
+        },
+        { key: "error_kind", value: "timeout" },
+      ],
+    ],
+  ])("shows %s", async (name, script, rows, error, debug) => {
+    if (script !== undefined) installCli(script);
+
+    // In "a timeout" both commands sleep 5 s, so both pass a 300 ms limit on any machine.
+    const fetched = await fetchTokenPlan(name === "a timeout" ? 300 : undefined);
+
+    expect(rowSummary(fetched.rows)).toEqual(rows);
+    if (error) expect(fetched.error).toMatchObject(error);
+    else expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toEqual(debug);
   });
+
+  it.runIf(SUPPORTED)(
+    "gives a window of two days its own row, its own label and a two-day span",
+    async () => {
+      const reset = Date.parse(RESET);
+      installCli({
+        usage: replying({ per2DayPercentage: 0.5, per2DayResetTime: reset, hasQuotaData: true }),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.rows).toEqual([
+        expect.objectContaining({
+          id: "alibaba-token-plan.personal.2_day",
+          label: "2d",
+          percentRemaining: 50,
+          resetsAt: RESET,
+          windowStartedAt: new Date(reset - 2 * 24 * 60 * 60_000).toISOString(),
+        }),
+      ]);
+      // Not the repo's one-day window: its length, label and reset notice would all be wrong.
+      expect(fetched.rows[0]?.window).toBeUndefined();
+      // Halfway through the two days, half used is on track.
+      expect(paceOf(fetched.rows[0]!, reset - 24 * 60 * 60_000)).toMatchObject({
+        evenLeft: 50,
+        kind: "on_track",
+      });
+      expect(fetched.debug).toContainEqual({ key: "windows", value: "2_day" });
+    },
+  );
+
+  it.runIf(SUPPORTED)("gives two hour windows two rows with their own ids", async () => {
+    const reset = Date.parse(RESET);
+    installCli({
+      usage: replying({
+        per1HourPercentage: 0.1,
+        per1HourResetTime: reset,
+        per3HourPercentage: 0.2,
+        per3HourResetTime: reset,
+        hasQuotaData: true,
+      }),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["alibaba-token-plan.personal.hour", "personal", "Hourly", "hour", 90, RESET],
+      ["alibaba-token-plan.personal.3_hour", "personal", "3h", null, 80, RESET],
+    ]);
+    expect(fetched.rows.map((row) => row.windowStartedAt)).toEqual([
+      new Date(reset - 60 * 60_000).toISOString(),
+      new Date(reset - 3 * 60 * 60_000).toISOString(),
+    ]);
+    expect(fetched.debug).toContainEqual({ key: "windows", value: "hour,3_hour" });
+  });
+
+  it.runIf(SUPPORTED)(
+    "starts a window of several months that many calendar months back",
+    async () => {
+      installCli({
+        usage: replying({ per3MonthPercentage: 0.5, per3MonthResetTime: Date.parse(RESET) }),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.rows).toEqual([
+        expect.objectContaining({
+          id: "alibaba-token-plan.personal.3_month",
+          label: "3mo",
+          windowStartedAt: "2024-02-01T20:53:20.000Z",
+        }),
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)("keeps the monthly row as before: its id, window and start", async () => {
+    installCli({
+      usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(fetched.rows).toEqual([
+      expect.objectContaining({
+        id: "alibaba-token-plan.personal.monthly",
+        label: "Monthly",
+        window: "month",
+        percentRemaining: 40,
+        resetsAt: RESET,
+        windowStartedAt: "2024-04-01T20:53:20.000Z",
+      }),
+    ]);
+  });
+
+  it.runIf(SUPPORTED)(
+    "leaves out a window with a unit it does not know, and a window of zero units",
+    async () => {
+      installCli({
+        usage: replying({
+          per1YearPercentage: 0.5,
+          per0DayPercentage: 0.5,
+          per1MonthPercentage: 0.6,
+          hasQuotaData: true,
+        }),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.error).toBeUndefined();
+      expect(rowSummary(fetched.rows)).toEqual([
+        ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, null],
+      ]);
+      expect(fetched.debug).toContainEqual({ key: "windows", value: "monthly" });
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "gives the monthly row a start a calendar month before its reset",
+    async () => {
+      installCli({
+        usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      // The reply says when the month resets; its cycle is anchored on that day, so the start is
+      // the same day a calendar month back.
+      expect(fetched.rows[0]?.windowStartedAt).toBe("2024-04-01T20:53:20.000Z");
+    },
+  );
+
+  it.runIf(SUPPORTED)("clamps the monthly start to the last day of a shorter month", async () => {
+    installCli({
+      usage: replying({
+        per1MonthPercentage: 0.6,
+        per1MonthResetTime: Date.parse("2024-03-31T00:00:00.000Z"),
+      }),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    // February 2024 has no 31st, so the start lands on the last day it has.
+    expect(fetched.rows[0]?.windowStartedAt).toBe("2024-02-29T00:00:00.000Z");
+  });
+
+  it.runIf(SUPPORTED)(
+    "shows a team seat row with the account name as its own account name",
+    async () => {
+      installCli({ seats: replying(seatPage([TEAM_LEAD])) });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([TEAM_LEAD_ROW]);
+      expect(fetched.rows[0]?.account).toBe("team-lead");
+      expect(fetched.rows[0]?.id).toBe("alibaba-token-plan.team.team_lead");
+      // A personal reply with no window is an absence, so the seats stand alone and nothing fails.
+      expect(fetched.error).toBeUndefined();
+      expect(fetched.debug).toEqual([
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "windows", value: "(none)" },
+        { key: "window_hint", value: NO_QUOTA_DATA_HINT },
+        { key: "seat_windows", value: "credits" },
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)("shows both the personal window and the team seats", async () => {
+    installCli({
+      usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+      seats: replying(seatPage([TEAM_LEAD])),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
+      TEAM_LEAD_ROW,
+    ]);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "windows", value: "monthly" },
+      { key: "seat_windows", value: "credits" },
+    ]);
+  });
+
+  it.runIf(SUPPORTED)("keeps a seat row whose cycle total is 0, through its amount", async () => {
+    installCli({
+      seats: replying(seatPage([seatJson("zero", { CycleTotalValue: 0, CycleSurplusValue: 0 })])),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    // No percentage (the total is 0), but `amount` carries the surplus, so the row survives.
+    expect(rowSummary(fetched.rows)).toEqual([
+      [
+        "alibaba-token-plan.team.zero",
+        "zero",
+        "Credits",
+        "month",
+        "0 credit (0 credit of 0 credit)",
+        null,
+      ],
+    ]);
+  });
+
+  it.runIf(SUPPORTED)(
+    "keeps a seat reporting a cycle total but no usage, with text instead of a dropped row",
+    async () => {
+      installCli({
+        seats: replying(
+          seatPage([
+            seatJson("no-surplus", {
+              CycleTotalValue: 250_000,
+              CycleEndTime: Date.parse(SEAT_RESET),
+            }),
+          ]),
+        ),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      // A limit alone is not a row value; without the text this row is dropped as `no value`.
+      expect(fetched.rows.map((row) => [row.id, row.text, row.limit?.decimal])).toEqual([
+        ["alibaba-token-plan.team.no_surplus", "no usage reported", "250000"],
+      ]);
+      expect(fetched.debug.filter((item) => item.key === "dropped_row")).toEqual([]);
+    },
+  );
+
+  // A CN team names its seats in Chinese; a slug drops every non-ASCII character, so the key is a
+  // digest of the name rather than the name's position in the list.
+  it.runIf(SUPPORTED)(
+    "keeps a seat whose name is not plain ASCII, keying a name digest and texting the raw name",
+    async () => {
+      installCli({
+        seats: replying(
+          seatPage([
+            seatJson("张三", { CycleTotalValue: 100, CycleSurplusValue: 40 }),
+            seatJson("John Doe", { CycleTotalValue: 100, CycleSurplusValue: 40 }),
+          ]),
+        ),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.rows.map((row) => [row.id, row.account])).toEqual([
+        ["alibaba-token-plan.team.seat_1d841bc0", "张三"],
+        ["alibaba-token-plan.team.john_doe", "John Doe"],
+      ]);
+      expect(fetched.debug.filter((item) => item.key === "dropped_row")).toEqual([]);
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "keys a seat by its name, not its position, so a reorder keeps the same row",
+    async () => {
+      const seats = (names: readonly string[]) =>
+        replying(
+          seatPage(
+            names.map((name) => seatJson(name, { CycleTotalValue: 100, CycleSurplusValue: 40 })),
+          ),
+        );
+      const idsByAccount = (rows: readonly { account?: string; id: string }[]) =>
+        Object.fromEntries(rows.map((row) => [row.account, row.id]));
+
+      installCli({ seats: seats(["张三", "李四"]) });
+      const first = await fetchTokenPlan();
+      installCli({ seats: seats(["李四", "张三"]) });
+      const second = await fetchTokenPlan();
+
+      // Each name keeps its own key however the reply orders the seats.
+      expect(idsByAccount(second.rows)).toEqual(idsByAccount(first.rows));
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "keeps two seats that slug alike, giving each a name digest so neither id is shared",
+    async () => {
+      installCli({
+        seats: replying(
+          seatPage([
+            seatJson("John Doe", { CycleTotalValue: 100, CycleSurplusValue: 40 }),
+            seatJson("John-Doe", { CycleTotalValue: 100, CycleSurplusValue: 40 }),
+          ]),
+        ),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.rows.map((row) => [row.id, row.account])).toEqual([
+        ["alibaba-token-plan.team.john_doe_6cea57c2", "John Doe"],
+        ["alibaba-token-plan.team.john_doe_7679aa58", "John-Doe"],
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "drops the second of two identically named seats, as a repeated row",
+    async () => {
+      installCli({
+        seats: replying(
+          seatPage([
+            seatJson("team-lead", { CycleTotalValue: 100, CycleSurplusValue: 40 }),
+            seatJson("team-lead", { CycleTotalValue: 100, CycleSurplusValue: 40 }),
+          ]),
+        ),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(fetched.rows.map((row) => row.id)).toEqual(["alibaba-token-plan.team.team_lead"]);
+      expect(fetched.debug.filter((item) => item.key === "dropped_row")).toEqual([
+        { key: "dropped_row", value: "alibaba-token-plan.team.team_lead: repeated row" },
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)("keeps the personal row when only the seat command fails", async () => {
+    installCli({
+      usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+      seats: exits(3),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
+    ]);
+    expect(fetched.error).toMatchObject({ code: "login_expired" });
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "windows", value: "monthly" },
+      { key: "seat_failure_kind", value: "seat_not_authenticated" },
+      {
+        key: "error",
+        value: `Alibaba Token Plan (team): ${ERROR_MESSAGES.seat_not_authenticated}`,
+      },
+      { key: "error_kind", value: "login_expired" },
+    ]);
+  });
+
+  it.runIf(SUPPORTED)("keeps the team seats when only the personal command fails", async () => {
+    installCli({ usage: exits(3), seats: replying(seatPage([TEAM_LEAD])) });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual([TEAM_LEAD_ROW]);
+    expect(fetched.error).toMatchObject({ code: "login_expired" });
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "failure_kind", value: "not_authenticated" },
+      { key: "seat_windows", value: "credits" },
+      { key: "error", value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.not_authenticated}` },
+      { key: "error_kind", value: "login_expired" },
+    ]);
+  });
+
+  it.runIf(SUPPORTED)(
+    "leaves out the personal account an AK/SK-only user never set up",
+    async () => {
+      installCli({
+        usage: exits(3),
+        seats: replying(seatPage([TEAM_LEAD])),
+        auth: replying(AUTH_STATUS.seatOnly),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([TEAM_LEAD_ROW]);
+      expect(fetched.error).toBeUndefined();
+      expect(fetched.debug).toEqual([
+        { key: "cli_available", value: "true" },
+        PLATFORM,
+        { key: "failure_kind", value: "not_authenticated" },
+        { key: "seat_windows", value: "credits" },
+      ]);
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "gives a seat row the cycle's start, so its window has an exact span",
+    async () => {
+      installCli({ seats: replying(seatPage([TEAM_LEAD])) });
+
+      const fetched = await fetchTokenPlan();
+
+      // A month-long window has no fixed length, so the pace of a row needs the start it reports.
+      expect(fetched.rows[0]?.windowStartedAt).toBe(SEAT_CYCLE_START);
+      expect(fetched.rows[0]?.resetsAt).toBe(SEAT_RESET);
+    },
+  );
+
+  it.runIf(SUPPORTED)("leaves out the team account a console-only user never set up", async () => {
+    installCli({
+      usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+      seats: exits(3),
+      auth: replying(AUTH_STATUS.consoleOnly),
+    });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual([
+      ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
+    ]);
+    expect(fetched.error).toBeUndefined();
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "windows", value: "monthly" },
+      { key: "seat_failure_kind", value: "seat_not_authenticated" },
+    ]);
+  });
+
+  // `bl auth status` runs after the commands, so a marker can disagree with the command it
+  // describes: a half it calls absent may still have answered with rows.
+  it.runIf(SUPPORTED)(
+    "shows the personal window a stale identity read called the console half absent",
+    async () => {
+      installCli({
+        usage: replying({ per1MonthPercentage: 0.6, per1MonthResetTime: Date.parse(RESET) }),
+        auth: replying(AUTH_STATUS.seatOnly),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([
+        ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 40, RESET],
+      ]);
+      expect(fetched.error).toBeUndefined();
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "shows the team seats a stale identity read called the OpenAPI half absent",
+    async () => {
+      installCli({
+        seats: replying(seatPage([TEAM_LEAD])),
+        auth: replying(AUTH_STATUS.consoleOnly),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([TEAM_LEAD_ROW]);
+      expect(fetched.error).toBeUndefined();
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "leaves out both halves when the account names neither credential",
+    async () => {
+      installCli({ usage: exits(3), seats: exits(3), auth: replying(AUTH_STATUS.neither) });
+
+      const fetched = await fetchTokenPlan();
+
+      expect(rowSummary(fetched.rows)).toEqual([]);
+      expect(fetched.error).toBeUndefined();
+      // The failures were left out, not answered, so the store's no-data check stays.
+      expect(fetched.empty).toBeUndefined();
+    },
+  );
+
+  it.runIf(SUPPORTED)("still reports both halves when the identity read fails", async () => {
+    // A read that failed cannot tell absence from failure.
+    installCli({ usage: exits(3), seats: exits(3), auth: exits(1) });
+
+    const fetched = await fetchTokenPlan();
+
+    expect(rowSummary(fetched.rows)).toEqual([]);
+    expect(fetched.error).toMatchObject({ code: "login_expired" });
+    expect(fetched.debug).toEqual([
+      { key: "cli_available", value: "true" },
+      PLATFORM,
+      { key: "failure_kind", value: "not_authenticated" },
+      { key: "seat_failure_kind", value: "seat_not_authenticated" },
+      {
+        key: "error",
+        value: `Alibaba Token Plan (personal): ${ERROR_MESSAGES.not_authenticated}`,
+      },
+      { key: "error_kind", value: "login_expired" },
+      {
+        key: "error",
+        value: `Alibaba Token Plan (team): ${ERROR_MESSAGES.seat_not_authenticated}`,
+      },
+      { key: "error_kind", value: "login_expired" },
+    ]);
+  });
+
+  it.runIf(SUPPORTED)(
+    "keys the account on the access key id, so a replaced console token keeps the slot",
+    async () => {
+      installCli({ auth: replying(AUTH_STATUS.both) });
+
+      await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+
+      // A key id does not rotate, so the slot survives the console token being replaced.
+      expect(identityMocks.deriveIdentity).toHaveBeenCalledWith({
+        providerId: "alibaba-token-plan",
+        principal: { kind: "stable-id", value: "LTAI...k9Pw" },
+      });
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "falls back to the console token when the CLI reports no access key id",
+    async () => {
+      installCli({ auth: replying(AUTH_STATUS.consoleOnly) });
+
+      await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+
+      expect(identityMocks.deriveIdentity).toHaveBeenCalledWith({
+        providerId: "alibaba-token-plan",
+        principal: { kind: "credential", value: "9f2c...d41a" },
+      });
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "keeps the account when the console token rotates, and moves it when the account does",
+    async () => {
+      const principalFor = async (markers: Record<string, unknown>) => {
+        installCli({ auth: replying(markers) });
+        clearAlibabaIdentityCacheForTests();
+        identityMocks.deriveIdentity.mockClear();
+        await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+        return identityMocks.deriveIdentity.mock.calls[0]?.[0];
+      };
+
+      const original = await principalFor(AUTH_STATUS.both);
+      // The CLI replaces the console token when it expires; the account behind it does not move.
+      expect(await principalFor({ ...AUTH_STATUS.both, console: { masked: "rotated" } })).toEqual(
+        original,
+      );
+      expect(await principalFor({ ...AUTH_STATUS.both, api_key: { masked: "other" } })).toEqual(
+        original,
+      );
+      expect(
+        await principalFor({ ...AUTH_STATUS.both, openapi: { access_key_id: "other" } }),
+      ).not.toEqual(original);
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "has no identity without a credential, so the store keeps the rows in memory only",
+    async () => {
+      installCli({ auth: replying(AUTH_STATUS.neither) });
+
+      await expect(
+        identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never),
+      ).resolves.toBeNull();
+      expect(identityMocks.deriveIdentity).not.toHaveBeenCalled();
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "reads `bl auth status` once for a fetch and the identity together, through the same memo",
+    async () => {
+      const log = join(paths.root, "auth-status.log");
+      installCli({ auth: replying(AUTH_STATUS.both, log) });
+
+      await fetchTokenPlan();
+      await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+
+      expect(readFileSync(log, "utf8").trim().split("\n")).toEqual(["auth status"]);
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "reads the account again for a fetch, so the store's re-check sees a switch inside the memo",
+    async () => {
+      installCli({ auth: replying(AUTH_STATUS.both) });
+      await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+      const other = { ...AUTH_STATUS.both, openapi: { access_key_id: "other" } };
+      installCli({ auth: replying(other) });
+      identityMocks.deriveIdentity.mockClear();
+
+      // The commands read the switched account live; the re-check after them must too.
+      await fetchTokenPlan();
+      await identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+
+      expect(identityMocks.deriveIdentity).toHaveBeenCalledWith({
+        providerId: "alibaba-token-plan",
+        principal: { kind: "stable-id", value: "other" },
+      });
+    },
+  );
+
+  it.runIf(SUPPORTED)(
+    "reads the account after the commands, never joining a read started before them",
+    async () => {
+      const log = join(paths.root, "auth-status.log");
+      installCli({ auth: replying(AUTH_STATUS.both, log) });
+
+      // A read still in flight from before the fetch cannot see a switch made while the seats load.
+      const earlier = identityPolicy().resolveIdentity(IDENTITY_CONTEXT as never, {} as never);
+      await fetchTokenPlan();
+      await earlier;
+
+      expect(readFileSync(log, "utf8").trim().split("\n")).toEqual(["auth status", "auth status"]);
+      expect(launch.calls.at(-1)?.args.join(" ")).toBe("auth status --output json");
+    },
+  );
+
+  // The seam: the provider spawns through its own `runAlibabaTokenPlanProcess`, so a row appears
+  // only after the declared document travelled argv, pipes, parsers and arithmetic.
+  it.runIf(SUPPORTED)(
+    "drives the provider's own process runner from the declared replies",
+    async () => {
+      installCli({
+        usage: replying({ per1MonthPercentage: 0.25, per1MonthResetTime: Date.parse(RESET) }),
+      });
+
+      const fetched = await fetchTokenPlan();
+
+      const commands = launch.calls.map((call) => call.args.join(" ")).sort();
+      expect(commands).toEqual(
+        [
+          "usage token-plan --output json",
+          "token-plan list-seats --status NORMAL --query-assigned true --page-size 100 --output json",
+          "auth status --output json",
+        ].sort(),
+      );
+      for (const call of launch.calls) {
+        expect(call.options.shell).toBe(false);
+        expect(call.options.detached).toBe(true);
+        expect(call.options.env?.PATH).toContain(join(paths.root, "bin"));
+      }
+      // Only the provider's runner attaches a stdout reader, so a pipe with one is the runner reading
+      // the declared chunks. The POSIX path spawns a real `bl`, so there are no fake pipes to check.
+      if (process.platform === "win32") {
+        expect(launch.pipes.every((pipe) => pipe.listenerCount("data") === 1)).toBe(true);
+      }
+
+      // 0.25 used is 75% left: the arithmetic ran on the faked chunks, unmodified.
+      expect(rowSummary(fetched.rows)).toEqual([
+        ["alibaba-token-plan.personal.monthly", "personal", "Monthly", "month", 75, RESET],
+      ]);
+    },
+  );
 });

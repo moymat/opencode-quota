@@ -7,6 +7,9 @@ import {
 export const MISTRAL_VIBE_COOKIE_SOURCES = ["auto", "env", "zen-browser"] as const;
 export type MistralVibeCookieSource = (typeof MISTRAL_VIBE_COOKIE_SOURCES)[number];
 
+/** How the two Mistral budgets (API and Vibe) become rows. */
+export type MistralBudgetLayout = "split" | "combined";
+
 export function isMistralVibeCookieSource(value: unknown): value is MistralVibeCookieSource {
   return (
     typeof value === "string" && (MISTRAL_VIBE_COOKIE_SOURCES as readonly string[]).includes(value)

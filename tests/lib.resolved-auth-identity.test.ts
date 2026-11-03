@@ -1,19 +1,14 @@
 import { chmod, mkdir, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
-const TEST_RUNTIME_ROOT = "/tmp/opencode-quota-resolved-auth-identity-tests";
+import { useOpencodeFolders } from "./helpers/opencode-folders.js";
+
+const TEST_RUNTIME_ROOT = useOpencodeFolders().root;
 const TEST_SYMLINK_TARGET = `${TEST_RUNTIME_ROOT}-symlink-target`;
+const RESOLVED_AUTH_IDENTITY_PATTERN = /^rai1_[A-Za-z0-9_-]{43}$/u;
 const POSIX_IDENTITY_STORAGE = process.platform !== "win32" && typeof process.getuid === "function";
-
-vi.mock("../src/lib/opencode-runtime-paths.js", () => ({
-  getOpencodeRuntimeDirs: () => ({
-    dataDir: `${TEST_RUNTIME_ROOT}/data`,
-    configDir: `${TEST_RUNTIME_ROOT}/config`,
-    cacheDir: `${TEST_RUNTIME_ROOT}/cache`,
-    stateDir: `${TEST_RUNTIME_ROOT}/state`,
-  }),
-}));
+const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform");
 
 describe("resolved-auth identity", () => {
   beforeEach(async () => {
@@ -25,6 +20,7 @@ describe("resolved-auth identity", () => {
   });
 
   afterEach(async () => {
+    if (originalPlatform) Object.defineProperty(process, "platform", originalPlatform);
     vi.resetModules();
     await Promise.all([
       rm(TEST_RUNTIME_ROOT, { recursive: true, force: true }),
@@ -53,7 +49,7 @@ describe("resolved-auth identity", () => {
         principal: { kind: "credential", value: "account-one-secret" },
       });
 
-      expect(identity.isResolvedAuthIdentity(first)).toBe(true);
+      expect(first).toMatch(RESOLVED_AUTH_IDENTITY_PATTERN);
       expect(first).toBe(repeat);
       expect(changedAccount).not.toBe(first);
       expect(changedProvider).not.toBe(first);
@@ -104,13 +100,14 @@ describe("resolved-auth identity", () => {
       const values = await Promise.all(
         Array.from({ length: 12 }, () =>
           identity.deriveResolvedAuthIdentity({
-            providerId: "synthetic",
+            providerId: "deepseek",
             principal: { kind: "credential", value: "shared-secret" },
           }),
         ),
       );
 
       expect(new Set(values).size).toBe(1);
+      expect(identity.isResolvedAuthIdentityKeyDurable()).toBe(true);
       const keyPath = identity.getResolvedAuthIdentityKeyPath();
       const raw = await readFile(keyPath, "utf8");
       expect(raw).toMatch(/^v1:[A-Za-z0-9_-]{43}\n$/u);
@@ -172,7 +169,7 @@ describe("resolved-auth identity", () => {
       await writeFile(keyPath, publishedKey, { mode: 0o600 });
       const resolved = await resolving;
 
-      expect(identity.isResolvedAuthIdentity(resolved)).toBe(true);
+      expect(resolved).toMatch(RESOLVED_AUTH_IDENTITY_PATTERN);
       expect(await readFile(keyPath, "utf8")).toBe(publishedKey);
       expect(
         await identity.deriveResolvedAuthIdentity({
@@ -184,9 +181,8 @@ describe("resolved-auth identity", () => {
   );
 
   it("fails closed when private owner-bound storage cannot be guaranteed", async () => {
-    const { isProtectedResolvedAuthStorageSupported } = await import(
-      "../src/lib/resolved-auth-identity.js"
-    );
+    const { isProtectedResolvedAuthStorageSupported } =
+      await import("../src/lib/resolved-auth-identity.js");
 
     expect(
       isProtectedResolvedAuthStorageSupported({ platform: "win32", hasOwnerIdentity: true }),
@@ -197,6 +193,32 @@ describe("resolved-auth identity", () => {
     expect(
       isProtectedResolvedAuthStorageSupported({ platform: "linux", hasOwnerIdentity: true }),
     ).toBe(true);
+  });
+
+  it("keys identities in memory only on Windows, stable until a reload", async () => {
+    Object.defineProperty(process, "platform", { configurable: true, value: "win32" });
+    const derive = (module: typeof import("../src/lib/resolved-auth-identity.js")) =>
+      module.deriveResolvedAuthIdentity({
+        providerId: "anthropic",
+        principal: { kind: "credential", value: "windows-secret" },
+      });
+
+    const identity = await import("../src/lib/resolved-auth-identity.js");
+    const first = await derive(identity);
+
+    expect(first).toMatch(RESOLVED_AUTH_IDENTITY_PATTERN);
+    expect(await derive(identity)).toBe(first);
+    expect(identity.isResolvedAuthIdentityKeyDurable()).toBe(false);
+    await expect(readFile(identity.getResolvedAuthIdentityKeyPath(), "utf8")).rejects.toMatchObject(
+      { code: "ENOENT" },
+    );
+
+    // A reload loads the module afresh with another key.
+    vi.resetModules();
+    const reloaded = await import("../src/lib/resolved-auth-identity.js");
+    const afterReload = await derive(reloaded);
+    expect(afterReload).toMatch(RESOLVED_AUTH_IDENTITY_PATTERN);
+    expect(afterReload).not.toBe(first);
   });
 
   it.runIf(POSIX_IDENTITY_STORAGE)(
@@ -222,21 +244,22 @@ describe("resolved-auth identity", () => {
     },
   );
 
-  it("refuses malformed key material without permanently memoizing the transient failure", async () => {
-    const identity = await import("../src/lib/resolved-auth-identity.js");
-    const keyPath = identity.getResolvedAuthIdentityKeyPath();
-    await mkdir(dirname(keyPath), { recursive: true });
-    await writeFile(keyPath, "not-a-valid-key\n", { mode: 0o666 });
-    if (process.platform !== "win32") await chmod(keyPath, 0o666);
+  it.runIf(POSIX_IDENTITY_STORAGE)(
+    "refuses malformed key material without permanently memoizing the transient failure",
+    async () => {
+      const identity = await import("../src/lib/resolved-auth-identity.js");
+      const keyPath = identity.getResolvedAuthIdentityKeyPath();
+      await mkdir(dirname(keyPath), { recursive: true });
+      await writeFile(keyPath, "not-a-valid-key\n", { mode: 0o666 });
+      await chmod(keyPath, 0o666);
 
-    const resolved = await identity.deriveResolvedAuthIdentity({
-      providerId: "zai",
-      principal: { kind: "credential", value: "must-not-be-hashed-with-fallback" },
-    });
+      const resolved = await identity.deriveResolvedAuthIdentity({
+        providerId: "zai",
+        principal: { kind: "credential", value: "must-not-be-hashed-with-fallback" },
+      });
 
-    expect(resolved).toBeNull();
-    expect(await readFile(keyPath, "utf8")).toBe("not-a-valid-key\n");
-    if (POSIX_IDENTITY_STORAGE) {
+      expect(resolved).toBeNull();
+      expect(await readFile(keyPath, "utf8")).toBe("not-a-valid-key\n");
       expect((await stat(keyPath)).mode & 0o777).toBe(0o600);
       const publishedKey = `v1:${Buffer.alloc(32, 9).toString("base64url")}\n`;
       await writeFile(keyPath, publishedKey, { mode: 0o600 });
@@ -244,7 +267,7 @@ describe("resolved-auth identity", () => {
         providerId: "zai",
         principal: { kind: "credential", value: "must-not-be-hashed-with-fallback" },
       });
-      expect(identity.isResolvedAuthIdentity(recovered)).toBe(true);
-    }
-  });
+      expect(recovered).toMatch(RESOLVED_AUTH_IDENTITY_PATTERN);
+    },
+  );
 });

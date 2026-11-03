@@ -100,16 +100,12 @@ describe("normalizeCookieExpiryMs", () => {
     expect(normalizeCookieExpiryMs(FUTURE_MS * 1000)).toBe(FUTURE_MS);
   });
 
-  it.each([
-    [0],
-    [-5],
-    [Number.NaN],
-    [Number.POSITIVE_INFINITY],
-    ["soon"],
-    [null],
-  ])("treats %j as a browser-session cookie", (value) => {
-    expect(normalizeCookieExpiryMs(value)).toBe(0);
-  });
+  it.each([[0], [-5], [Number.NaN], [Number.POSITIVE_INFINITY], ["soon"], [null]])(
+    "treats %j as a browser-session cookie",
+    (value) => {
+      expect(normalizeCookieExpiryMs(value)).toBe(0);
+    },
+  );
 });
 
 describe("getZenBrowserConfigDirs", () => {

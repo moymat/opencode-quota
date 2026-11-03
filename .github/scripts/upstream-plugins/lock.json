@@ -1,0 +1,28 @@
+{
+  "plugins": {
+    "cursor-opencode-provider": {
+      "npmUrl": "https://www.npmjs.com/package/cursor-opencode-provider/v/0.8.5",
+      "packageName": "cursor-opencode-provider",
+      "publishedAt": "2026-10-25T12:17:34.129Z",
+      "referenceDir": ".github/scripts/upstream-plugins/cursor-opencode-provider",
+      "repo": "oakimov/cursor-opencode-provider",
+      "version": "0.8.5"
+    },
+    "opencode-agy-auth": {
+      "npmUrl": "https://www.npmjs.com/package/%40anthonyhaussman/opencode-agy-auth/v/1.4.12-alpha.0",
+      "packageName": "@anthonyhaussman/opencode-agy-auth",
+      "publishedAt": "2026-11-01T09:48:52.144Z",
+      "referenceDir": ".github/scripts/upstream-plugins/opencode-agy-auth",
+      "repo": "anthonyhaussman/opencode-agy-auth",
+      "version": "1.4.12-alpha.0"
+    },
+    "opencode-gemini-auth": {
+      "npmUrl": "https://www.npmjs.com/package/opencode-gemini-auth/v/2.0.1",
+      "packageName": "opencode-gemini-auth",
+      "publishedAt": "2026-09-23T08:46:12.806Z",
+      "referenceDir": ".github/scripts/upstream-plugins/opencode-gemini-auth",
+      "repo": "jenslys/opencode-gemini-auth",
+      "version": "2.0.1"
+    }
+  }
+}

@@ -25,7 +25,7 @@ export type ResolvedAuthIdentity = string & {
   readonly [resolvedAuthIdentityBrand]: true;
 };
 
-export type ResolvedAuthPrincipal =
+type ResolvedAuthPrincipal =
   | { kind: "stable-id"; value: string }
   | { kind: "credential"; value: string };
 
@@ -43,6 +43,14 @@ function canProtectIdentityStorage(): boolean {
     platform: process.platform,
     hasOwnerIdentity: typeof process.getuid === "function",
   });
+}
+
+/**
+ * Whether identities stay the same after a reload: true where the key lives in the protected
+ * key file, false where it is held in memory only (Windows, or no owner uid).
+ */
+export function isResolvedAuthIdentityKeyDurable(): boolean {
+  return canProtectIdentityStorage();
 }
 
 export function getResolvedAuthIdentityKeyPath(): string {
@@ -125,7 +133,9 @@ async function writeTemporaryIdentityKey(path: string, key: Buffer): Promise<voi
 }
 
 async function createOrReadIdentityKey(): Promise<Buffer | null> {
-  if (!canProtectIdentityStorage()) return null;
+  // Where the key file can't be protected, a random key held in memory keeps identities stable
+  // while this plugin instance runs. It is never written to disk.
+  if (!canProtectIdentityStorage()) return randomBytes(RESOLVED_AUTH_KEY_BYTES);
 
   const path = getResolvedAuthIdentityKeyPath();
   const directory = join(getOpencodeRuntimeDirs().stateDir, RESOLVED_AUTH_KEY_DIRNAME);
@@ -219,11 +229,24 @@ export async function composeResolvedAuthIdentities(params: {
   ]);
 }
 
-export function isResolvedAuthIdentity(value: unknown): value is ResolvedAuthIdentity {
-  return (
-    typeof value === "string" &&
-    new RegExp(`^${RESOLVED_AUTH_IDENTITY_PREFIX}[A-Za-z0-9_-]{43}$`, "u").test(value)
-  );
+/**
+ * Who a provider is signed in as across every login it checks: each login's connection with its
+ * own identity and whether OpenCode uses it, in a stable order. Adding, removing, switching or
+ * swapping a login changes it. Null without logins, or when one of them can't be told apart
+ * safely.
+ */
+export async function loginListIdentity(
+  providerId: string,
+  logins: ReadonlyArray<{
+    row: { id: string; active: boolean };
+    identity: ResolvedAuthIdentity | null;
+  }>,
+): Promise<ResolvedAuthIdentity | null> {
+  if (logins.length === 0 || logins.some((login) => login.identity === null)) return null;
+  const members = logins
+    .map(({ row, identity }) => JSON.stringify([row.id, identity, row.active]))
+    .sort();
+  return keyedIdentity(["logins", providerId, members]);
 }
 
 export function __resetResolvedAuthIdentityForTests(): void {
