@@ -85,10 +85,6 @@ export function valueAt(settings: unknown, path: string): FieldValue {
   return value as FieldValue;
 }
 
-export function defaultDisplaySettings(): DisplaySettings {
-  return defaultSettings();
-}
-
 // ---------------------------------------------------------------------------------------------
 // The Settings pages: one line per setting, every page from this table.
 
@@ -436,7 +432,10 @@ export function typedColor(settings: DisplaySettings, field: Field, text: string
 }
 
 /** Desktop's own settings in the TUI's surface groups: no TUI tab shows or resets them. */
-const DESKTOP_KEYS: ReadonlySet<string> = new Set(["statusLine.withSidePanel"]);
+const DESKTOP_KEYS: ReadonlySet<string> = new Set([
+  "statusLine.withSidePanel",
+  "statusLine.composerPill",
+]);
 
 /**
  * The settings a tab's reset puts back to their defaults: its lines. A surface tab resets every

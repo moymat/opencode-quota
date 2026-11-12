@@ -47,6 +47,7 @@ const EXPECTED = {
     show: true,
     withSidebar: false,
     withSidePanel: true,
+    composerPill: true,
     runsOut: false,
     hidden: [],
     providerOrder: [],

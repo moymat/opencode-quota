@@ -84,7 +84,7 @@ export type ApiKeyLoginDiagnostics =
 
 /** The OpenCode config files that count for `directory`, the one OpenCode ranks highest first. */
 async function configsByPriority(directory: string): Promise<OpenCodeConfigDocument[]> {
-  return (await readOpenCodeConfigs(directory)).reverse();
+  return [...(await readOpenCodeConfigs(directory))].reverse();
 }
 
 /** The login of the first auth key, in order, that has one among `rows`. */
@@ -99,7 +99,6 @@ export function firstLoginRow(
   return undefined;
 }
 
-/** True when `value` is missing or passes `check`, like an optional field of a schema. */
 function isMissingOr(value: unknown, check: (value: unknown) => boolean): boolean {
   return value === undefined || check(value);
 }
