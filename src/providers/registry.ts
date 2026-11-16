@@ -9,7 +9,9 @@ import {
   QUOTA_PROVIDER_REGISTRATION_SOURCE,
 } from "../lib/provider-registration.js";
 import { alibabaCodingPlanProvider, alibabaTokenPlanProvider } from "./alibaba.js";
+import { anthropicApiProvider } from "./anthropic-api.js";
 import { anthropicProvider } from "./anthropic.js";
+import { commandCodeProvider } from "./command-code.js";
 import { copilotProvider } from "./copilot.js";
 import { cursorProvider } from "./cursor.js";
 import { deepseekProvider } from "./deepseek.js";
@@ -33,10 +35,12 @@ import { xaiProvider } from "./xai.js";
 
 const PROVIDERS_BY_ID = {
   anthropic: anthropicProvider,
+  "anthropic-api": anthropicApiProvider,
   copilot: copilotProvider,
   openai: openaiProvider,
   openrouter: openRouterProvider,
   cursor: cursorProvider,
+  commandcode: commandCodeProvider,
   "alibaba-coding-plan": alibabaCodingPlanProvider,
   "alibaba-token-plan": alibabaTokenPlanProvider,
   "google-gemini-cli": googleGeminiCliProvider,
