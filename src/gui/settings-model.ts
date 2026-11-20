@@ -45,7 +45,7 @@ export const PROVIDER_KEYS: Readonly<Record<string, readonly string[]>> = {
     "providers.cursor.billingCycleStartDay",
   ],
   opencode: ["providers.opencode.monthlyLimitUsd"],
-  "mistral-vibe": ["providers.mistral.cookieSource", "providers.mistral.budgetLayout"],
+  "mistral-vibe": ["providers.mistral.cookieSource"],
 };
 
 const colorKeys = (roles: readonly string[]) => roles.map((role) => `colors.${role}`);

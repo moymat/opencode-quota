@@ -403,12 +403,12 @@ Cursor estimates the current billing cycle from your local OpenCode history, pri
 
 ### Mistral
 
-Reads the monthly credit budgets of your Mistral subscription from the admin billing API (`admin.mistral.ai/api/local-trpc/billing.budget`) with the Ory session cookie, and shows two rows:
+Reads the monthly credit budgets of your Mistral subscription from the admin billing API (`admin.mistral.ai/api/local-trpc/billing.budget`) with the Ory session cookie, and shows up to two rows:
 
 - **API** — the La Plateforme API credits included in the plan, with the used percentage and the used, limit and remaining amounts in the plan currency (for example `2.55 EUR of 25.5 EUR`).
 - **Vibe** — the Vibe (Le Chat) credits, same shape.
 
-By default the two budgets are two rows. Set `"providers.mistral.budgetLayout": "combined"` in `settings.jsonc` to merge them into one **Monthly** row: the bar shows the combined consumption (total used / total limit), and the row keeps the combined amounts. The two budgets must use the same currency; otherwise the rows stay split.
+A plan that reports a single shared API and Vibe budget shows one row; a plan that reports separate budgets shows two.
 
 The same `ory_session_*` cookie authenticates both `chat.mistral.ai` and `admin.mistral.ai` (the session lives on the bare `mistral.ai` domain), so one sign-in covers both rows. By default the cookie is read straight from the **Zen browser** profile's `cookies.sqlite`, so the rows follow the browser's live session: when Ory refreshes or rotates the session, the next fetch picks up the new cookie automatically, and a revoked session only needs a fresh sign-in at `chat.mistral.ai` in Zen browser.
 

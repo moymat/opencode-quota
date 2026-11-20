@@ -81,34 +81,6 @@ function budgetRow(params: {
   };
 }
 
-/** Both budgets as one row: one bar for the total, and the two pairs in its amounts. */
-function combinedBudgetRow(params: {
-  api: MistralBudgetLine;
-  vibe: MistralBudgetLine;
-  resetFallbackIso: string | null;
-}): ProviderRow {
-  const { api, vibe } = params;
-  const used = usedAmount(api) + usedAmount(vibe);
-  const budget = api.budget + vibe.budget;
-  const remaining = Math.max(0, budget - used);
-  const usagePercentage = budget > 0 ? (used / budget) * 100 : 0;
-  const resetsAt = api.resetAtIso ?? vibe.resetAtIso ?? params.resetFallbackIso;
-
-  return {
-    ...MISTRAL_ROW,
-    key: MONTHLY.key,
-    label: MONTHLY.label,
-    type: "quota",
-    prominence: "primary",
-    window: MONTHLY.window,
-    percentRemaining: 100 - usagePercentage,
-    used: budgetAmount(api, used),
-    limit: budgetAmount(api, budget),
-    remaining: budgetAmount(api, remaining),
-    ...(resetsAt ? { resetsAt } : {}),
-  };
-}
-
 /** The Vibe row from the chat code usage API, which reports no currency amounts. */
 function chatUsageRow(usage: MistralVibeUsage, resetFallbackIso: string | null): ProviderRow {
   const resetsAt = usage.resetAtIso ?? resetFallbackIso;
@@ -237,84 +209,58 @@ export const mistralVibeProvider: QuotaProvider = {
       chat_source: chatResult.success ? "ok" : "failed",
     };
 
-    const combined =
-      ctx.config.mistralBudgetLayout === "combined" &&
-      admin?.api !== null &&
-      admin?.api !== undefined &&
-      admin?.vibe !== null &&
-      admin?.vibe !== undefined &&
-      admin.api.currency === admin.vibe.currency;
-
     let vibeRendered = false;
 
-    if (combined && admin?.api && admin.vibe) {
+    // Mistral API credits are only reported by the admin billing endpoint. A plan without
+    // API credits reports no api_budget: no row, no error.
+    if (admin?.api) {
       rows.push(
-        combinedBudgetRow({
-          api: admin.api,
-          vibe: admin.vibe,
+        budgetRow({
+          key: "api",
+          label: "API",
+          line: admin.api,
+          resetFallbackIso: admin.rootResetAtIso ?? chat?.resetAtIso ?? null,
+        }),
+      );
+      detailValues.api_usage_percentage = admin.api.usagePercentage.toFixed(6);
+      detailValues.api_reset_at =
+        admin.api.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
+    } else if (!adminResult.success) {
+      errors.push(
+        failedAccount(
+          MISTRAL_API_LABEL,
+          sessionErrorMessage({
+            error: adminResult.error,
+            sessionExpired: isMistralAdminSessionExpiredError(adminResult),
+            source: config.source,
+            signInHost: "admin.mistral.ai",
+          }),
+        ),
+      );
+    }
+
+    // Mistral Vibe credits: the admin billing budget is preferred (it carries the currency
+    // amounts); the chat code usage API backs the row up otherwise.
+    if (admin?.vibe) {
+      rows.push(
+        budgetRow({
+          key: "vibe",
+          label: "Vibe",
+          line: admin.vibe,
           resetFallbackIso: admin.rootResetAtIso ?? chat?.resetAtIso ?? null,
         }),
       );
       vibeRendered = true;
-      detailValues.api_usage_percentage = admin.api.usagePercentage.toFixed(6);
-      detailValues.api_reset_at =
-        admin.api.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
       detailValues.vibe_source = "admin";
       detailValues.vibe_usage_percentage = admin.vibe.usagePercentage.toFixed(6);
       detailValues.vibe_reset_at =
         admin.vibe.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
-    } else {
-      // Mistral API credits are only reported by the admin billing endpoint. A plan without
-      // API credits reports no api_budget: no row, no error.
-      if (admin?.api) {
-        rows.push(
-          budgetRow({
-            key: "api",
-            label: "API",
-            line: admin.api,
-            resetFallbackIso: admin.rootResetAtIso ?? chat?.resetAtIso ?? null,
-          }),
-        );
-        detailValues.api_usage_percentage = admin.api.usagePercentage.toFixed(6);
-        detailValues.api_reset_at =
-          admin.api.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
-      } else if (!adminResult.success) {
-        errors.push(
-          failedAccount(
-            MISTRAL_API_LABEL,
-            sessionErrorMessage({
-              error: adminResult.error,
-              sessionExpired: isMistralAdminSessionExpiredError(adminResult),
-              source: config.source,
-              signInHost: "admin.mistral.ai",
-            }),
-          ),
-        );
-      }
-
-      // Mistral Vibe credits: the admin billing budget is preferred (it carries the currency
-      // amounts); the chat code usage API backs the row up otherwise.
-      if (admin?.vibe) {
-        rows.push(
-          budgetRow({
-            key: "vibe",
-            label: "Vibe",
-            line: admin.vibe,
-            resetFallbackIso: admin.rootResetAtIso ?? chat?.resetAtIso ?? null,
-          }),
-        );
-        vibeRendered = true;
-        detailValues.vibe_source = "admin";
-        detailValues.vibe_usage_percentage = admin.vibe.usagePercentage.toFixed(6);
-        detailValues.vibe_reset_at =
-          admin.vibe.resetAtIso ?? admin.rootResetAtIso ?? chat?.resetAtIso ?? undefined;
-      } else if (chat) {
-        rows.push(chatUsageRow(chat, admin?.rootResetAtIso ?? null));
-        vibeRendered = true;
-        detailValues.vibe_source = "chat-api";
-        detailValues.vibe_usage_percentage = chat.usagePercentage.toFixed(6);
-        detailValues.vibe_reset_at = chat.resetAtIso ?? admin?.rootResetAtIso ?? undefined;
-      }
+    } else if (chat) {
+      rows.push(chatUsageRow(chat, admin?.rootResetAtIso ?? null));
+      vibeRendered = true;
+      detailValues.vibe_source = "chat-api";
+      detailValues.vibe_usage_percentage = chat.usagePercentage.toFixed(6);
+      detailValues.vibe_reset_at = chat.resetAtIso ?? admin?.rootResetAtIso ?? undefined;
     }
 
     // The PAYG state stays a /quota_status diagnostic, not a panel row.

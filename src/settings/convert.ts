@@ -70,6 +70,7 @@ const DROPPED: ReadonlyMap<string, string> = new Map(
     alibabaCodingPlanTier:
       "removed in v4; the alibaba-coding-plan id now belongs to the built-in CLI provider, so a leftover tuning tunes nothing",
     customSources: 'removed in v4; use "providers.custom"',
+    mode: "removed; Mistral reports one shared API and Vibe budget",
   }),
 );
 /** 4.x leftovers v5 already ignored without a word. */
@@ -97,7 +98,6 @@ const V5_KEYS: ReadonlyMap<string, string | ((value: unknown) => boolean)> = new
     cursorBillingCycleStartDay: "providers.cursor.billingCycleStartDay",
     opencodeMonthlyLimit: "providers.opencode.monthlyLimitUsd",
     mistralVibeCookieSource: oneOf("auto", "env", "zen-browser"),
-    mode: oneOf("splited", "combined"),
     minIntervalMs: "providers.checking.minIntervalMs",
     requestTimeoutMs: "providers.checking.requestTimeoutMs",
     waitForQuotaReset: "providers.checking.waitForQuotaReset",
@@ -346,18 +346,7 @@ function mapV5Values(values: ReadonlyMap<string, unknown>): {
   };
 
   for (const [key, to] of V5_KEYS) {
-    // `mode` is renamed on the way; see below.
-    if (key === "mode") continue;
     if (typeof to === "string" && has(key)) toServer(key, to, values.get(key));
-  }
-
-  if (has("mode")) {
-    toServer(
-      "mode",
-      "providers.mistral.budgetLayout",
-      values.get("mode") === "combined" ? "combined" : "split",
-      'v5\'s "splited" is v6\'s "split"',
-    );
   }
 
   if (has("enabledProviders")) {

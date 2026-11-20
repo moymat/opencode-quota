@@ -181,8 +181,6 @@ export const SETTINGS_SCHEMA = {
   "providers.opencode.monthlyLimitUsd": USD,
   /** Where the Mistral session cookie comes from: env, the Zen browser, or env first. */
   "providers.mistral.cookieSource": choice(["auto", "env", "zen-browser"], "auto"),
-  /** "split": one row per budget (API, Vibe); "combined": one row for both. */
-  "providers.mistral.budgetLayout": choice(["split", "combined"], "split"),
   "providers.checking.minIntervalMs": above0(300_000),
   "providers.checking.requestTimeoutMs": above0(5_000),
   "providers.checking.waitForQuotaReset": bool(true),

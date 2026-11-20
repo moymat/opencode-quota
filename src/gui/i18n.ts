@@ -322,9 +322,6 @@ export const en = {
   "setting.providers.mistral.cookieSource": "Mistral session cookie from",
   "setting.providers.mistral.cookieSource.description":
     "Where the Mistral session cookie comes from: the environment, the Zen browser, or the environment first.",
-  "setting.providers.mistral.budgetLayout": "Mistral budgets",
-  "setting.providers.mistral.budgetLayout.description":
-    "One row per budget (API and Vibe), or one row for both together.",
   "setting.providers.checking.minIntervalMs": "Check for new numbers",
   "setting.providers.checking.minIntervalMs.description":
     "Wait at least this long between provider checks.",
@@ -405,8 +402,6 @@ export const en = {
   "option.providers.mistral.cookieSource.auto": "environment, then Zen",
   "option.providers.mistral.cookieSource.env": "environment only",
   "option.providers.mistral.cookieSource.zen-browser": "Zen browser only",
-  "option.providers.mistral.budgetLayout.split": "one row each",
-  "option.providers.mistral.budgetLayout.combined": "one row for both",
   "option.providers.pricing.source.auto": "newest list",
   "option.providers.pricing.source.bundled": "built-in list only",
   "option.providers.pricing.source.runtime": "downloaded list only",

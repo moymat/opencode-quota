@@ -118,7 +118,7 @@ const EXPECTED = {
     anthropic: { binaryPath: "claude" },
     cursor: { plan: "none", includedApiUsd: null, billingCycleStartDay: null },
     opencode: { monthlyLimitUsd: null },
-    mistral: { cookieSource: "auto", budgetLayout: "split" },
+    mistral: { cookieSource: "auto" },
     checking: { minIntervalMs: 300000, requestTimeoutMs: 5000, waitForQuotaReset: true },
     pricing: { source: "auto", autoRefreshDays: 7 },
   },

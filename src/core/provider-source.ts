@@ -92,7 +92,6 @@ export function providerContext(
       cursorBillingCycleStartDay: cursor.billingCycleStartDay ?? undefined,
       opencodeMonthlyLimit: opencode.monthlyLimitUsd ?? undefined,
       mistralCookieSource: mistral.cookieSource,
-      mistralBudgetLayout: mistral.budgetLayout,
       requestTimeoutMs: settings.providers.checking.requestTimeoutMs,
       requestTimeoutMsConfigured: fromFile.includes("providers.checking.requestTimeoutMs"),
       enabledProviders: registryProviderIds(registeredProviders(host), settings.providers.off),
@@ -326,7 +325,6 @@ async function readProviderSource(
     config.cursorBillingCycleStartDay ?? null,
     config.opencodeMonthlyLimit ?? null,
     config.mistralCookieSource ?? null,
-    config.mistralBudgetLayout ?? null,
     config.quotaProviders ?? [],
   ]);
   const availableProviderIds = config.quotaProviders?.length

@@ -4,7 +4,7 @@
  */
 import type { ProviderFetchResult } from "../providers/contract.js";
 import type { CursorQuotaPlan } from "./cursor-pricing.js";
-import type { MistralBudgetLayout, MistralVibeCookieSource } from "./mistral-vibe-config.js";
+import type { MistralVibeCookieSource } from "./mistral-vibe-config.js";
 import type { QuotaProviderDefinition } from "./quota-providers.js";
 import type { ResolvedAuthIdentity } from "./resolved-auth-identity.js";
 import type { RuntimeProviderIdResolver } from "./runtime-provider-ids.js";
@@ -46,8 +46,6 @@ export interface QuotaProviderContext {
     opencodeMonthlyLimit?: number;
     /** Where the Mistral session cookie comes from (see `providers.mistral.cookieSource`). */
     mistralCookieSource?: MistralVibeCookieSource;
-    /** "split": one row per Mistral budget; "combined": one row for both. */
-    mistralBudgetLayout?: MistralBudgetLayout;
     requestTimeoutMs?: number;
     /** True when the settings file sets providers.checking.requestTimeoutMs (not its default). */
     requestTimeoutMsConfigured?: boolean;

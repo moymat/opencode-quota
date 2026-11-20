@@ -155,52 +155,6 @@ describe("Mistral Vibe provider", () => {
     });
   });
 
-  it("combines both budgets into one row when the layout is combined", async () => {
-    configured();
-    adminBudget();
-    chatUsage();
-
-    const fetched = await fetchRows(mistralVibeProvider, { mistralBudgetLayout: "combined" });
-
-    expect(fetched.error).toBeUndefined();
-    expect(fetched.rows).toHaveLength(1);
-    expect(fetched.rows[0]).toMatchObject({
-      id: "mistral-vibe.monthly",
-      label: "Monthly",
-      window: "month",
-      used: { decimal: "130.05", unit: { kind: "currency", code: "EUR" } },
-      limit: { decimal: "280.5", unit: { kind: "currency", code: "EUR" } },
-      remaining: { decimal: "150.45", unit: { kind: "currency", code: "EUR" } },
-      resetsAt: RESET,
-    });
-    expect(fetched.rows[0]?.percentRemaining).toBeCloseTo(53.6363636364, 6);
-  });
-
-  it("keeps split rows when combined layout has no Vibe budget", async () => {
-    configured();
-    adminBudget({ vibe: null });
-    chatUsage();
-
-    const fetched = await fetchRows(mistralVibeProvider, { mistralBudgetLayout: "combined" });
-
-    expect(fetched.error).toBeUndefined();
-    expect(rowSummary(fetched.rows).map((row) => row[2])).toEqual(["API", "Vibe"]);
-    expect(fetched.rows[1]?.used).toBeUndefined();
-  });
-
-  it("keeps split rows when the two budgets use different currencies", async () => {
-    configured();
-    adminBudget({
-      vibe: { usagePercentage: 50, budget: 255, currency: "USD", resetAtIso: RESET },
-    });
-    chatUsage();
-
-    const fetched = await fetchRows(mistralVibeProvider, { mistralBudgetLayout: "combined" });
-
-    expect(fetched.error).toBeUndefined();
-    expect(rowSummary(fetched.rows).map((row) => row[2])).toEqual(["API", "Vibe"]);
-  });
-
   it("invites a sign-in for the API row when the admin endpoint rejects the session", async () => {
     configured("zen-browser:/home/u/.config/zen/prof");
     mocks.queryMistralAdminBudget.mockResolvedValueOnce({
